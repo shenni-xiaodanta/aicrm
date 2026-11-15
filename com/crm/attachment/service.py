@@ -8,7 +8,9 @@ import uuid
 from pathlib import Path
 
 from com.crm.attachment import dao
+from com.crm.common.access import ensure_lead_file_access
 from com.crm.common.config import PROJECT_ROOT
+from com.crm.common.db import tx
 from com.crm.common.exceptions import BizException
 from com.crm.helper.filehelper import (
     ALLOWED_EXTENSIONS,
@@ -31,7 +33,7 @@ def list_attachments(lead_id):
     return dao.list_by_lead(int(lead_id))
 
 
-def add_attachment(lead_id, category, description, files):
+def add_attachment(lead_id, category, description, files, user_id):
     """新增一条附件记录，可带说明文字和多个附件。"""
     lead_id = int(lead_id)
     category = (category or "").strip()
@@ -63,40 +65,40 @@ def add_attachment(lead_id, category, description, files):
         prepared.append((upload, original_name, suffix))
 
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-    record_id = dao.insert_record(lead_id, category, description)
+    # 主记录 + N 条文件记录放同一个事务（同 followup 模块，见该处注释）
     saved_paths = []
     try:
-        for upload, original_name, suffix in prepared:
-            # 磁盘文件名用 UUID，原始文件名只存数据库用于展示/下载
-            stored_name = f"{uuid.uuid4().hex}{suffix}"
-            path = UPLOAD_DIR / stored_name
-            saved_paths.append(path)
-            size = 0
-            with path.open("wb") as out:
-                # upload.size 来自请求头，不可信；按实际字节数再次校验 10MB 上限
-                while True:
-                    chunk = upload.file.read(1024 * 1024)
-                    if not chunk:
-                        break
-                    size += len(chunk)
-                    if size > MAX_FILE_SIZE:
-                        raise BizException(
-                            f"附件超过 10MB：{original_name}", code=1000
-                        )
-                    out.write(chunk)
-            dao.insert_file(
-                record_id, lead_id, original_name, stored_name,
-                size, clip(upload.content_type, 120),
-            )
+        with tx():
+            record_id = dao.insert_record(lead_id, category, description, user_id)
+            for upload, original_name, suffix in prepared:
+                # 磁盘文件名用 UUID，原始文件名只存数据库用于展示/下载
+                stored_name = f"{uuid.uuid4().hex}{suffix}"
+                path = UPLOAD_DIR / stored_name
+                saved_paths.append(path)
+                size = 0
+                with path.open("wb") as out:
+                    # upload.size 来自请求头，不可信；按实际字节数再次校验 10MB 上限
+                    while True:
+                        chunk = upload.file.read(1024 * 1024)
+                        if not chunk:
+                            break
+                        size += len(chunk)
+                        if size > MAX_FILE_SIZE:
+                            raise BizException(
+                                f"附件超过 10MB：{original_name}", code=1000
+                            )
+                        out.write(chunk)
+                dao.insert_file(
+                    record_id, lead_id, original_name, stored_name,
+                    size, clip(upload.content_type, 120),
+                )
     except Exception:
-        # 任意文件或数据库写入失败：删除已落盘文件和父记录，避免留下半截数据。
-        # 所有删除都是 best-effort，原始异常继续向上抛。
+        # 事务已整体回滚数据库行；这里只清理已落盘的孤儿文件（best-effort）
         for path in saved_paths:
             try:
                 path.unlink(missing_ok=True)
             except OSError:
                 pass
-        dao.delete_record(record_id)
         raise
 
     logger.info(

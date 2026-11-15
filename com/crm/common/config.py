@@ -33,12 +33,20 @@ file_handler = TimedRotatingFileHandler(
 # 默认滚动名为 aicrm.log.2026-11-12，这里改成 aicrm-2026-11-12.log
 file_handler.namer = lambda name: name.replace(".log.", "-") + ".log"
 
+# request_id 注入：Filter 必须挂在 handler 上（不是 logger 上），见 common/logger.py 说明
+from com.crm.common.logger import RequestContextFilter  # noqa: E402  放在 handler 定义之后导入，避免循环依赖
+request_filter = RequestContextFilter()
+file_handler.addFilter(request_filter)
+
 logging.basicConfig(
     level=logging.INFO,  # 配置日志输出级别
     # asctime:时间戳；threadName:当前运行的线程名称；levelname:日志输出级别；name:模块名称；message:日志信息
-    format="%(asctime)s - %(threadName)s - [%(levelname)s] - %(name)s:%(message)s",  # 配置日志输出格式
+    # request_id:本次请求的短 id（由 RequestIDMiddleware 生成），一次请求的所有日志行可串起来排查
+    format="%(asctime)s - %(threadName)s - [%(levelname)s] - [%(request_id)s] - %(name)s:%(message)s",  # 配置日志输出格式
     handlers=[
         file_handler,        # 文件日志（按天滚动）
         logging.StreamHandler(),  # 控制台输出
     ],
 )
+# StreamHandler 在 basicConfig 里创建，同样要挂 Filter，否则控制台行会因缺少 request_id 属性报错
+logging.getLogger().handlers[1].addFilter(request_filter)

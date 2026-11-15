@@ -2,12 +2,12 @@
 from com.crm.common.basedao import execute, insert, query_all, query_one
 
 
-def insert_record(lead_id, category, description):
-    """新增附件记录，返回自增主键。"""
+def insert_record(lead_id, category, description, created_by=None):
+    """新增附件记录，返回自增主键。created_by 由 001_baseline.sql 起启用。"""
     return insert(
-        "INSERT INTO crm_attachment_record (lead_id, category, description) "
-        "VALUES (%s, %s, %s)",
-        (lead_id, category, description),
+        "INSERT INTO crm_attachment_record (lead_id, category, description, created_by) "
+        "VALUES (%s, %s, %s, %s)",
+        (lead_id, category, description, created_by),
     )
 
 
@@ -51,11 +51,21 @@ def list_by_lead(lead_id):
 
 
 def get_file(file_id):
-    """查询附件文件元数据。"""
+    """查询附件文件元数据，join 主记录取 created_by（下载归属校验用）。"""
     return query_one(
-        "SELECT id, original_name, stored_name, file_size, content_type "
-        "FROM crm_attachment_file WHERE id = %s",
+        "SELECT f.id, f.lead_id, r.created_by, f.original_name, f.stored_name, "
+        "f.file_size, f.content_type "
+        "FROM crm_attachment_file f "
+        "LEFT JOIN crm_attachment_record r ON r.id = f.record_id "
+        "WHERE f.id = %s",
         (file_id,),
+    )
+
+
+def get_lead_owner(lead_id):
+    """查询商机负责人，下载鉴权用；商机不存在返回 None。"""
+    return query_one(
+        "SELECT owner_id FROM crm_shangji WHERE id = %s", (lead_id,)
     )
 
 

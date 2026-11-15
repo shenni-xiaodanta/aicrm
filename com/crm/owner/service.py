@@ -1,6 +1,7 @@
 """负责人业务层：当前负责人、可选用户、变更记录。"""
 import logging
 
+from com.crm.common.db import tx
 from com.crm.common.exceptions import BizException
 from com.crm.owner import dao
 
@@ -36,9 +37,9 @@ def get_detail(lead_id):
 def change_owner(lead_id, owner_id, note, operator_id):
     """变更负责人并写入变更记录。
 
-    注意：update_owner 和 insert_change 是两次独立提交，没有事务；
-    极端情况下负责人已改但变更记录写入失败。当前项目采用简单实现，
-    如需强一致可在 DAO 层改为同一连接事务。
+    两步写包进同一事务（common/db.py 的 tx()）：原来 update_owner 和
+    insert_change 各自提交，极端情况下负责人已改但变更记录丢失——
+    负责人口径就断了溯源。现在要么都成、要么都不成。
     """
     lead = dao.get_lead(lead_id)
     if not lead:
@@ -51,10 +52,12 @@ def change_owner(lead_id, owner_id, note, operator_id):
     if old_owner_id == owner_id:
         raise BizException("负责人未变化", code=1000)
 
-    dao.update_owner(lead_id, owner_id)
-    dao.insert_change(
-        lead_id, old_owner_id, owner_id, (note or "").strip()[:500], operator_id
-    )
+    # 校验（读）放在事务外，事务里只做写：缩短连接占用时间
+    with tx():
+        dao.update_owner(lead_id, owner_id)
+        dao.insert_change(
+            lead_id, old_owner_id, owner_id, (note or "").strip()[:500], operator_id
+        )
     logger.info(
         "负责人变更 lead_id=%s old=%s new=%s", lead_id, old_owner_id, owner_id
     )

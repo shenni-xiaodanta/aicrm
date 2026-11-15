@@ -17,6 +17,7 @@ from com.crm.common.exceptions import BizException
 from com.crm.attachment.api import router as attachment_router
 from com.crm.chat.api import router as chat_router
 from com.crm.common.response import fail
+from com.crm.common.logger import RequestIDMiddleware
 from com.crm.followup.api import router as followup_router
 from com.crm.owner.api import router as owner_router
 from com.crm.source.api import router as source_router
@@ -44,6 +45,9 @@ app.add_middleware(
     # 控制 Cookie 的 Secure 属性
     https_only=False,   # 本地开发用 HTTP；上线改成 True
 )
+# request_id 中间件：每个请求生成短 id，贯穿日志并在响应头 X-Request-ID 回传。
+# 加在 SessionMiddleware 之后（后添加的在外层先执行），登录跳转的响应也带 id。
+app.add_middleware(RequestIDMiddleware)
 # 各业务路由自行通过 Depends(require_login) 做鉴权；/static 最后挂载，避免遮挡 API 路由。
 app.include_router(router)
 app.include_router(user_router)

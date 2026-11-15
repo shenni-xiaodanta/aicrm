@@ -56,22 +56,41 @@ def fetch_and_extract_tender_list(url: str, base_domain: str = None) -> List[Dic
 
 
 def extract_tender_detail(detail_url: str) -> str:
-    """抓取详情页正文：优先 div.ewb-article，取不到则退回整页文本。"""
+    """抓取详情页正文：按候选选择器依次尝试，全部取不到实质内容才退回整页文本。
+
+    注意：站点改版会让选择器失效，且失效是「静默」的——2026-11 实测合肥站
+    正文容器已从 div.ewb-article 改名为 div.ewb-info-bd，旧代码拿整页文本
+    （含导航栏、开标倒计时等噪声）喂给 LLM，抽取质量被拉低且无任何报错。
+    所以除了多候选兜底，还必须对取到的内容做长度校验：少于 MIN_CONTENT_LEN
+    视为「没取到正文」，继续尝试下一候选，而不是直接采信。
+    """
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
+    # 候选顺序即优先级：ewb-info-bd 是合肥站当前真实容器（实测 1370 字），
+    # ewb-article 是旧版容器，留作兼容尚未改版的同构站点
+    CONTENT_SELECTORS = [
+        "div.ewb-info-bd",
+        "div.ewb-article",
+    ]
+    MIN_CONTENT_LEN = 300  # 正文低于此长度基本是导航/页头，不当成有效正文
+
     try:
         resp = requests.get(detail_url, headers=headers, timeout=15)
         resp.raise_for_status()
         resp.encoding = resp.apparent_encoding
         soup = BeautifulSoup(resp.text, "html.parser")
-        # 这里是合肥公共资源交易中心正文div，优先精准提取
-        content_tag = soup.select_one("div.ewb-article")
-        if content_tag:
+        for selector in CONTENT_SELECTORS:
+            content_tag = soup.select_one(selector)
+            if not content_tag:
+                continue
             content = content_tag.get_text(strip=True, separator="\n")
-        else:
-            content = soup.get_text(strip=True)
-        return content
+            if len(content) >= MIN_CONTENT_LEN:
+                return content
+            # 命中了但内容太短（可能是改版后的空壳容器），不采信，试下一个
+            print(f"详情页 {detail_url} 选择器 {selector} 仅取到 {len(content)} 字，不足 {MIN_CONTENT_LEN}，尝试下一候选")
+        # 全部候选都取不到实质内容：退回整页文本（带噪声，但好过空串）
+        return soup.get_text(strip=True)
     except Exception as e:
         print(f"详情页 {detail_url} 解析失败：{e}")
         return ""

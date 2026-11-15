@@ -21,19 +21,19 @@ def add_attachment(
     category: str = Form(...),
     description: str = Form(""),
     files: list[UploadFile] = File(default=[]),
-    _user=Depends(require_login),
+    user=Depends(require_login),
 ):
     """新增附件记录，可带说明文字和多个附件。"""
     return ok(
-        service.add_attachment(lead_id, category, description, files),
+        service.add_attachment(lead_id, category, description, files, user["id"]),
         "提交成功",
     )
 
 
 @router.get("/file/{file_id}")
-def download_file(file_id: int, _user=Depends(require_login)):
-    """下载/查看附件。"""
-    row, path = service.get_file(file_id)
+def download_file(file_id: int, user=Depends(require_login)):
+    """下载/查看附件（校验归属：负责人 / 创建人 / admin）。"""
+    row, path = service.get_file(file_id, user)
     return FileResponse(
         path,
         media_type=row["content_type"] or "application/octet-stream",

@@ -20,16 +20,16 @@ def add_follow_up(
     lead_id: int = Form(...),
     content: str = Form(...),
     files: list[UploadFile] = File(default=[]),
-    _user=Depends(require_login),
+    user=Depends(require_login),
 ):
     """新增跟进记录，可同时上传多个附件。"""
-    return ok(service.add_follow_up(lead_id, content, files), "添加成功")
+    return ok(service.add_follow_up(lead_id, content, files, user["id"]), "添加成功")
 
 
 @router.get("/file/{file_id}")
-def download_file(file_id: int, _user=Depends(require_login)):
-    """下载/查看跟进附件。"""
-    row, path = service.get_file(file_id)
+def download_file(file_id: int, user=Depends(require_login)):
+    """下载/查看跟进附件（校验归属：负责人 / 创建人 / admin）。"""
+    row, path = service.get_file(file_id, user)
     return FileResponse(
         path,
         media_type=row["content_type"] or "application/octet-stream",

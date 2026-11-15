@@ -2,11 +2,11 @@
 from com.crm.common.basedao import execute, insert, query_all, query_one
 
 
-def insert_follow_up(lead_id, content):
-    """新增跟进记录，返回自增主键。"""
+def insert_follow_up(lead_id, content, created_by=None):
+    """新增跟进记录，返回自增主键。created_by 由 001_baseline.sql 起启用。"""
     return insert(
-        "INSERT INTO crm_follow_up (lead_id, content) VALUES (%s, %s)",
-        (lead_id, content),
+        "INSERT INTO crm_follow_up (lead_id, content, created_by) VALUES (%s, %s, %s)",
+        (lead_id, content, created_by),
     )
 
 
@@ -49,11 +49,25 @@ def list_by_lead(lead_id):
 
 
 def get_file(file_id):
-    """查询附件元数据。"""
+    """查询附件元数据，join 主记录取 created_by（下载归属校验用）。
+
+    lead_id 直接取文件表冗余列；created_by 只在主记录上，
+    用 LEFT JOIN 而不是两次查询：文件行一定有 follow_up_id，合并一次拿全。
+    """
     return query_one(
-        "SELECT id, original_name, stored_name, file_size, content_type "
-        "FROM crm_follow_up_file WHERE id = %s",
+        "SELECT f.id, f.lead_id, fu.created_by, f.original_name, f.stored_name, "
+        "f.file_size, f.content_type "
+        "FROM crm_follow_up_file f "
+        "LEFT JOIN crm_follow_up fu ON fu.id = f.follow_up_id "
+        "WHERE f.id = %s",
         (file_id,),
+    )
+
+
+def get_lead_owner(lead_id):
+    """查询商机负责人，下载鉴权用；商机不存在返回 None。"""
+    return query_one(
+        "SELECT owner_id FROM crm_shangji WHERE id = %s", (lead_id,)
     )
 
 
