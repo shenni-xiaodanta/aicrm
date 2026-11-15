@@ -17,39 +17,18 @@ logger = logging.getLogger(__name__)
 # deepseek-flash 是思考模式，不支持强制 tool_choice，这里用 json_mode
 extract_chain = extract_prompt | llm.with_structured_output(LeadExtraction, method="json_mode")
 
-def crawl_and_save(base_domain, list_url):
-    """抓取列表页和详情，批量抽取并入库。
+def extract_and_save(candidates):
+    """对已抓好正文的公告列表执行 LLM 抽取 + 地理编码 + 去重入库。
 
-    流程：
-    1. 规范化 base_domain / list_url，填反时自动交换
-    2. 同步爬取列表页和全部详情页（htmlhelper 内部有 2~10 秒休眠）
-    3. 截断正文后并发执行 LLM 抽取，单条失败不阻断其他条
-    4. 优先使用模型给出的坐标，否则按省市 + 地址做高德地理编码
-    5. 按 source_url_md5 去重入库
+    candidates: [{title, date, url, content}]（content 已按需截断）
+    返回 {total, saved, failed, failed_rows}——failed_rows 是逐条失败
+    明细 [{url, title, reason}]，供采集任务表落 fail_detail。
 
-    注意：返回值中 saved + failed 可能小于 total，
-    重复 URL 会被 INSERT IGNORE 静默跳过，这部分既不算 saved 也不算 failed。
+    拆出本函数的原因：旧链路 crawl_and_save 与新的任务式采集（crawl
+    模块）共用同一套抽取入库逻辑，只有"怎么拿到公告"不同。
+    注意：saved + failed 可能小于 total，重复 URL 会被 INSERT IGNORE
+    静默跳过，这部分既不算 saved 也不算 failed。
     """
-    # 两个参数填反时自动交换；base_domain 无效时从 list_url 提取域名
-    base_domain, list_url = normalize_source(base_domain, list_url)
-    if not is_origin(base_domain):
-        base_domain = origin(list_url)
-    if not base_domain:
-        raise BizException(
-            "base_domain 无效，请填写站点根域名，例如 https://ggzy.hefei.gov.cn"
-        )
-
-    # htmlhelper 是同步串行爬取，选择器硬编码为合肥公共资源交易中心；
-    # 请求失败时可能返回空列表，因此空结果需要明确报错。
-    rows = run_all_tender_crawl(list_url, base_domain)
-    if not rows:
-        raise BizException("未抓取到公告，请检查 list_url、base_domain 或站点选择器")
-
-    candidates = [row for row in rows if row.get("url") and row.get("content")]
-    if not candidates:
-        raise BizException("未解析到有效公告正文，请检查站点选择器")
-
-    # 截断到数据库列宽 / 模型上下文预算，避免超长正文把请求撑爆
     inputs = [{
         "title": clip(row.get("title"), 500),
         "date": clip(row.get("date"), 50),
@@ -66,9 +45,15 @@ def crawl_and_save(base_domain, list_url):
     )
 
     saved = failed = 0
+    failed_rows = []
     for row, result in zip(candidates, results):
         if isinstance(result, Exception):
             failed += 1
+            failed_rows.append({
+                "url": row.get("url", ""),
+                "title": row.get("title", ""),
+                "reason": f"LLM 抽取失败：{clip(str(result), 180)}",
+            })
             continue
         # 模型给出非零坐标就直接用；否则按地址 + 省市做高德地理编码
         lng, lat = resolve_coords(
@@ -100,8 +85,39 @@ def crawl_and_save(base_domain, list_url):
         rowcount = dao.insert_lead(record)
         saved += 1 if rowcount == 1 else 0
 
-    logger.info("商机采集完成 total=%s saved=%s failed=%s", len(rows), saved, failed)
-    return {"total": len(rows), "saved": saved, "failed": failed}
+    logger.info("商机抽取入库完成 total=%s saved=%s failed=%s", len(candidates), saved, failed)
+    return {"total": len(candidates), "saved": saved, "failed": failed, "failed_rows": failed_rows}
+
+
+def crawl_and_save(base_domain, list_url):
+    """抓取列表页和详情，批量抽取并入库（旧入口，行为不变）。
+
+    流程：
+    1. 规范化 base_domain / list_url，填反时自动交换
+    2. 同步爬取列表页和全部详情页（htmlhelper 内部有 2~10 秒休眠）
+    3. 交给 extract_and_save 做 LLM 抽取、地理编码、去重入库
+    """
+    # 两个参数填反时自动交换；base_domain 无效时从 list_url 提取域名
+    base_domain, list_url = normalize_source(base_domain, list_url)
+    if not is_origin(base_domain):
+        base_domain = origin(list_url)
+    if not base_domain:
+        raise BizException(
+            "base_domain 无效，请填写站点根域名，例如 https://ggzy.hefei.gov.cn"
+        )
+
+    # htmlhelper 是同步串行爬取，选择器硬编码为合肥公共资源交易中心；
+    # 请求失败时可能返回空列表，因此空结果需要明确报错。
+    rows = run_all_tender_crawl(list_url, base_domain)
+    if not rows:
+        raise BizException("未抓取到公告，请检查 list_url、base_domain 或站点选择器")
+
+    candidates = [row for row in rows if row.get("url") and row.get("content")]
+    if not candidates:
+        raise BizException("未解析到有效公告正文，请检查站点选择器")
+
+    result = extract_and_save(candidates)
+    return {"total": result["total"], "saved": result["saved"], "failed": result["failed"]}
 
 
 def get_points():

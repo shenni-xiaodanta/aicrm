@@ -16,6 +16,7 @@ from com.crm.common.config import SESSION_MAX_AGE, SESSION_SECRET, STATIC_DIR
 from com.crm.common.exceptions import BizException
 from com.crm.attachment.api import router as attachment_router
 from com.crm.chat.api import router as chat_router
+from com.crm.crawl.api import router as crawl_router
 from com.crm.common.response import fail
 from com.crm.common.logger import RequestIDMiddleware
 from com.crm.followup.api import router as followup_router
@@ -52,6 +53,7 @@ app.add_middleware(RequestIDMiddleware)
 app.include_router(router)
 app.include_router(user_router)
 app.include_router(source_router)
+app.include_router(crawl_router)  # 采集：站点/地区/任务（替代 source 的采集入口）
 app.include_router(followup_router) # 跟进
 app.include_router(attachment_router)  # 附件
 app.include_router(chat_router)
