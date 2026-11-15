@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>商机地图</title>
+  <!-- 所有页签模块的样式都在此页面加载，InfoWindow 内各页签共用 -->
+  <link rel="stylesheet" href="/static/common/vendor/bootstrap/bootstrap.min.css">
+  <link rel="stylesheet" href="/static/common/css/common.css">
+  <link rel="stylesheet" href="/static/shangji/css/map.css">
+  <link rel="stylesheet" href="/static/source/css/source.css">
+  <link rel="stylesheet" href="/static/followup/css/followup.css">
+  <link rel="stylesheet" href="/static/attachment/css/attachment.css">
+  <link rel="stylesheet" href="/static/chat/css/chat.css">
+  <link rel="stylesheet" href="/static/owner/css/owner.css">
+  <link rel="stylesheet" href="/static/summary/css/summary.css">
+  <!-- 两个占位符由后端 map_page() 在返回 HTML 时替换为真实配置 -->
+  <script>__AMAP_SECURITY_CONFIG__</script>
+  <script src="https://webapi.amap.com/maps?v=2.0&key=__AMAP_JS_KEY__"></script>
+</head>
+<body class="d-flex flex-column vh-100">
+  <nav class="navbar bg-white border-bottom shadow-sm px-3">
+    <span class="navbar-brand mb-0 fw-semibold">商机地图</span>
+
+    <ul class="navbar-nav me-auto ms-3">
+      <li class="nav-item dropdown">
+        <button id="crawlMenuToggle" type="button" class="nav-link dropdown-toggle"
+                data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+          商机采集
+        </button>
+        <ul id="crawlProvinceMenu" class="dropdown-menu"></ul>
+      </li>
+    </ul>
+
+    <div class="d-flex align-items-center gap-2">
+      <span class="text-muted small">共 <span id="count" class="fw-bold text-primary">0</span> 个</span>
+      <span class="badge rounded-pill text-bg-danger">高</span>
+      <span class="badge rounded-pill text-bg-primary">中</span>
+      <span class="badge rounded-pill text-bg-secondary">低</span>
+      <button id="refresh" type="button" class="btn btn-sm btn-outline-primary ms-2">刷新</button>
+      <button id="logout" type="button" class="btn btn-sm btn-outline-secondary">退出</button>
+    </div>
+  </nav>
+
+  <!-- 检索条件 -->
+  <div class="filter-bar bg-white border-bottom px-3 py-2 d-flex align-items-center gap-2 flex-wrap">
+    <select id="filterIndustry" class="form-select form-select-sm">
+      <option value="">全部行业</option>
+    </select>
+    <select id="filterIntent" class="form-select form-select-sm">
+      <option value="">全部意向</option>
+      <option value="高">高</option>
+      <option value="中">中</option>
+      <option value="低">低</option>
+    </select>
+    <select id="filterRegion" class="form-select form-select-sm">
+      <option value="">全部区域</option>
+    </select>
+    <button id="filterReset" type="button" class="btn btn-sm btn-outline-secondary">重置</button>
+    <span class="text-muted small ms-auto">显示 <b id="visibleCount">0</b> 个</span>
+  </div>
+
+  <main id="map" class="flex-grow-1"></main>
+
+  <div id="loading" class="position-fixed top-50 start-50 translate-middle text-center d-none">
+    <div class="spinner-border text-primary" role="status"></div>
+    <div class="small text-muted mt-2">加载商机...</div>
+  </div>
+  <div id="notice" class="alert alert-warning shadow-sm position-fixed bottom-0 start-50 translate-middle-x mb-3 d-none" role="alert"></div>
+
+  <!-- 商机采集弹窗 -->
+  <div class="modal fade" id="crawlModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">商机采集 <span id="crawlRegion" class="text-muted fs-6"></span></h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+        </div>
+        <div class="modal-body">
+          <div id="crawlAlert" class="alert py-2 small d-none" role="alert"></div>
+          <div class="mb-3">
+            <label class="form-label" for="crawlBaseDomain">域名（base_domain）：</label>
+            <input id="crawlBaseDomain" class="form-control"
+                   placeholder="https://ggzy.hefei.gov.cn">
+            <div class="form-text">只填协议 + 域名，不要带列表页路径。</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label" for="crawlListUrl">列表页网址（list_url）：</label>
+            <input id="crawlListUrl" class="form-control"
+                   placeholder="https://.../2.html">
+            <div class="form-text">填完整的列表页链接。</div>
+          </div>
+          <div id="crawlResult" class="alert alert-success py-2 small d-none" role="alert"></div>
+        </div>
+        <div class="modal-footer">
+          <button id="crawlSave" type="button" class="btn btn-outline-primary">保存</button>
+          <button id="crawlRun" type="button" class="btn btn-primary">执行</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 加载顺序有依赖：Bootstrap -> 公共工具 -> 地图 -> 各页签模块。
+       map.js 依赖 App，并在点击水滴时调用 ChatPage.sql。 -->
+  <script src="/static/common/vendor/bootstrap/bootstrap.bundle.min.js"></script>
+  <script src="/static/common/js/common.js"></script>
+  <script src="/static/shangji/js/map.js"></script>
+  <script src="/static/source/js/source.js"></script>
+  <script src="/static/followup/js/followup.js"></script>
+  <script src="/static/attachment/js/attachment.js"></script>
+  <script src="/static/chat/js/chat.js"></script>
+  <script src="/static/owner/js/owner.js"></script>
+  <script src="/static/summary/js/summary.js"></script>
+</body>
+</html>

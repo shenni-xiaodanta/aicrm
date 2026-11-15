@@ -1,0 +1,104 @@
+/* 地图容器：flex 子项需要 min-height:0 才能正确收缩 */
+#map {
+  width: 100%;
+  min-height: 0;
+}
+
+/* 顶部检索条件 */
+.filter-bar .form-select {
+  width: auto;
+  min-width: 120px;
+}
+
+/* 水滴标注 */
+.lead-marker {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  cursor: pointer;
+}
+
+.lead-pin {
+  position: relative;
+  width: 22px;
+  height: 22px;
+  border: 2px solid #fff;
+  border-radius: 50% 50% 50% 0;
+  transform: rotate(-45deg);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, .35);
+}
+
+.lead-pin::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  margin: -3.5px 0 0 -3.5px;
+  background: #fff;
+  border-radius: 50%;
+}
+
+.lead-pin.high { background: #dc3545; }
+.lead-pin.mid  { background: #0d6efd; }
+.lead-pin.low  { background: #6c757d; }
+
+.lead-name {
+  max-width: 160px;
+  margin-top: 2px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, .92);
+  font-size: 12px;
+  color: #212529;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 详情弹窗 */
+.lead-iw {
+  width: 520px;
+  max-width: 85vw;
+  font-size: 13px;
+}
+
+/* 弹窗页签 */
+.lead-tabs .nav-link {
+  padding: .35rem .4rem;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.lead-tab-content {
+  max-height: 45vh;
+  overflow-y: auto;
+}
+
+.lead-empty {
+  padding: 1.5rem 0;
+  text-align: center;
+  color: #8c8c8c;
+  font-size: 13px;
+}
+
+.lead-iw-row {
+  display: flex;
+  padding: 3px 0;
+  border-bottom: 1px solid #f1f3f5;
+}
+
+.lead-iw-row:last-child {
+  border-bottom: 0;
+}
+
+.lead-iw-label {
+  flex: 0 0 64px;
+  color: #6c757d;
+}
+
+.lead-iw-value {
+  flex: 1;
+  word-break: break-all;
+}

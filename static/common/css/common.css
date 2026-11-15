@@ -1,0 +1,17 @@
+/* 共用基础样式 */
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: #f8f9fa;
+}
+
+/* 单行省略 */
+.ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

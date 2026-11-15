@@ -1,0 +1,49 @@
+/* 总结：四项结果 */
+.summary-head {
+  padding-bottom: .5rem;
+  border-bottom: 1px solid #f1f3f5;
+}
+
+.summary-section {
+  padding: .55rem 0;
+  border-bottom: 1px solid #f1f3f5;
+}
+
+.summary-section:last-of-type {
+  border-bottom: 0;
+}
+
+.summary-section h6 {
+  margin-bottom: .35rem;
+  font-size: 13px;
+  font-weight: 600;
+  color: #212529;
+}
+
+.summary-text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: #495057;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.summary-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .35rem;
+}
+
+.summary-time {
+  margin-top: .5rem;
+  font-size: 12px;
+  color: #adb5bd;
+}
+
+.summary-empty {
+  padding: 1.5rem 0;
+  text-align: center;
+  color: #8c8c8c;
+  font-size: 13px;
+}

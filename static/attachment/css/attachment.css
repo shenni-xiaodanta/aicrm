@@ -1,0 +1,68 @@
+/* 附件管理：表单 + 记录列表 */
+.attachment-head {
+  padding-bottom: .75rem;
+  border-bottom: 1px solid #f1f3f5;
+}
+
+.attachment-pending {
+  margin-top: .5rem;
+}
+
+.attachment-pending-item {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  padding: .25rem 0;
+  font-size: 12px;
+}
+
+.attachment-pending-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-list {
+  display: flex;
+  flex-direction: column;
+  gap: .75rem;
+}
+
+.attachment-item {
+  padding-bottom: .6rem;
+  border-bottom: 1px dashed #f1f3f5;
+}
+
+.attachment-item:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.attachment-desc {
+  margin-top: .35rem;
+  font-size: 13px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.attachment-files {
+  display: flex;
+  flex-direction: column;
+  gap: .15rem;
+  margin-top: .35rem;
+}
+
+.attachment-file {
+  overflow: hidden;
+  font-size: 12px;
+  color: #0d6efd;
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-file:hover {
+  text-decoration: underline;
+}

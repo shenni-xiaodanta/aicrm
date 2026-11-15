@@ -1,0 +1,34 @@
+/* 线索采集：三级下拉 + 采集弹窗 */
+.dropdown-submenu {
+  position: relative;
+}
+
+.dropdown-submenu > .submenu {
+  position: absolute;
+  top: 0;
+  left: 100%;
+  margin-top: -.25rem;
+  display: none;
+  min-width: 8rem;
+}
+
+.dropdown-submenu.open > .submenu {
+  display: block;
+}
+
+.dropdown-submenu > .submenu-toggle::after {
+  content: "›";
+  float: right;
+  margin-left: 1.5rem;
+}
+
+@media (max-width: 576px) {
+  .dropdown-submenu > .submenu {
+    position: static;
+    margin-left: 1rem;
+  }
+}
+
+#crawlResult {
+  white-space: pre-line;
+}

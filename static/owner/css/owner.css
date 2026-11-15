@@ -1,0 +1,65 @@
+/* 负责人：变更表单 + 变更时间轴 */
+.owner-head {
+  padding-bottom: .75rem;
+  border-bottom: 1px solid #f1f3f5;
+}
+
+.owner-current {
+  font-weight: 600;
+  color: #212529;
+}
+
+.owner-timeline {
+  position: relative;
+  padding-left: 14px;
+}
+
+.owner-timeline::before {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 4px;
+  bottom: 4px;
+  width: 2px;
+  background: #e9ecef;
+}
+
+.owner-item {
+  position: relative;
+  padding: 0 0 .85rem 12px;
+}
+
+.owner-item:last-child {
+  padding-bottom: 0;
+}
+
+.owner-item::before {
+  content: "";
+  position: absolute;
+  left: -13px;
+  top: 4px;
+  width: 8px;
+  height: 8px;
+  border: 2px solid #0d6efd;
+  border-radius: 50%;
+  background: #fff;
+}
+
+.owner-time {
+  margin-bottom: 2px;
+  font-size: 12px;
+  color: #6c757d;
+}
+
+.owner-change {
+  font-size: 13px;
+  color: #212529;
+}
+
+.owner-note {
+  margin-top: 2px;
+  font-size: 13px;
+  color: #495057;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

@@ -1,0 +1,35 @@
+[project]
+name = "aicrm"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.14"
+dependencies = [
+    "asyncmy>=0.2.17",
+    "dashscope>=2.0.3",
+    "dbutils>=3.2.0",
+    "fastapi>=0.162.0",
+    "ipywidgets>=8.1.9",
+    "jieba>=0.42.1",
+    "langchain>=1.4.7",
+    "langchain-community>=0.4.2",
+    "langchain-deepseek>=1.1.1",
+    "langchain-ollama>=1.1.0",
+    "langchain-openai>=1.7.3",
+    "langchain-tavily>=0.2.18",
+    "langgraph-checkpoint-mysql>=3.0.0",
+    "langgraph-checkpoint-sqlite>=3.1.3",
+    "langgraph-cli[inmem]>=0.4.40",
+    "notebook>=7.6.4",
+    "ollama>=0.6.3",
+    "openai>=3.42.0",
+    "pymysql>=1.2.3",
+    "python-dotenv>=1.2.4",
+    "requests>=2.34.2",
+    "sounddevice>=0.5.6",
+    "streamlit>=1.66.1",
+    "uvicorn>=0.54.0",
+]
+
+[[tool.uv.index]]
+url = "https://mirrors.aliyun.com/pypi/simple"
+default = true
