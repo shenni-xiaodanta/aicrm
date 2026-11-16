@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>商机工作台</title>
+  <title>商机情报</title>
   <!-- 所有页签模块的样式都在此页面加载，抽屉内各页签共用 -->
   <link rel="stylesheet" href="/static/common/vendor/bootstrap/bootstrap.min.css">
   <link rel="stylesheet" href="/static/common/css/common.css">
@@ -19,79 +19,230 @@
   <script src="https://webapi.amap.com/maps?v=2.0&key=__AMAP_JS_KEY__"></script>
 </head>
 <body class="d-flex flex-column vh-100">
-  <nav class="navbar bg-white border-bottom shadow-sm px-3">
-    <span class="navbar-brand mb-0 fw-semibold">商机工作台</span>
+  <nav class="topbar">
+    <div class="d-flex align-items-stretch">
+      <span class="brand">商机情报</span>
 
-    <ul class="navbar-nav me-auto ms-3">
-      <li class="nav-item dropdown">
-        <button id="crawlMenuToggle" type="button" class="nav-link dropdown-toggle"
-                data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
-          商机采集
-        </button>
-        <ul id="crawlProvinceMenu" class="dropdown-menu"></ul>
-      </li>
-    </ul>
+      <!-- 顶层页签：工作台 / 采集任务 / 站点管理。
+           站点管理仅 admin 可见（source.js 按 /user/me 控制显隐）。 -->
+      <div class="d-flex" id="pageTabs">
+        <button type="button" class="page-tab active" data-page="work">商机工作台</button>
+        <button type="button" class="page-tab" data-page="task">采集任务</button>
+        <button type="button" class="page-tab d-none" data-page="site" id="tabSite">站点管理</button>
+      </div>
 
-    <div class="d-flex align-items-center gap-2">
-      <span class="text-muted small">共 <span id="count" class="fw-bold text-primary">0</span> 个</span>
-      <span class="badge rounded-pill text-bg-danger">高</span>
-      <span class="badge rounded-pill text-bg-primary">中</span>
-      <span class="badge rounded-pill text-bg-secondary">低</span>
-      <button id="refresh" type="button" class="btn btn-sm btn-outline-primary ms-2">刷新</button>
-      <button id="logout" type="button" class="btn btn-sm btn-outline-secondary">退出</button>
+      <!-- 右侧一列：工作台工具条（切到其他页签时隐藏）+ 退出。
+           外层统一 ms-auto，避免 workbar 隐藏后退出按钮又跑回左边 -->
+      <div class="ms-auto d-flex align-items-center gap-2">
+        <div id="workbar" class="d-flex align-items-center gap-2">
+          <span class="text-muted small">共 <span id="count" class="fw-bold text-primary">0</span> 个</span>
+          <span class="badge rounded-pill text-bg-danger">高</span>
+          <span class="badge rounded-pill text-bg-primary">中</span>
+          <span class="badge rounded-pill text-bg-secondary">低</span>
+          <button id="refresh" type="button" class="btn btn-sm btn-outline-primary ms-2">刷新</button>
+        </div>
+        <button id="logout" type="button" class="btn btn-sm btn-outline-secondary ms-2">退出</button>
+      </div>
     </div>
   </nav>
 
-  <!-- 检索条件：列表和地图共用同一组筛选，切换视图不丢条件 -->
-  <div class="filter-bar bg-white border-bottom px-3 py-2 d-flex align-items-center gap-2 flex-wrap">
-    <select id="filterIndustry" class="form-select form-select-sm">
-      <option value="">全部行业</option>
-    </select>
-    <select id="filterIntent" class="form-select form-select-sm">
-      <option value="">全部意向</option>
-      <option value="高">高</option>
-      <option value="中">中</option>
-      <option value="低">低</option>
-    </select>
-    <select id="filterRegion" class="form-select form-select-sm">
-      <option value="">全部区域</option>
-    </select>
-    <input id="filterKeyword" type="search" class="form-control form-control-sm wb-kw"
-           placeholder="搜标题 / 客户 / 概述">
-    <button id="filterReset" type="button" class="btn btn-sm btn-outline-secondary">重置</button>
-    <span class="text-muted small ms-auto">显示 <b id="visibleCount">0</b> 个</span>
-    <div id="viewSeg" class="view-seg" role="group" aria-label="视图切换">
-      <button type="button" class="btn btn-sm seg active" data-view="table">列表</button>
-      <button type="button" class="btn btn-sm seg" data-view="map">地图</button>
+  <!-- ====================== 页一：商机工作台 ====================== -->
+  <section id="page-work" class="wb-page flex-grow-1 d-flex flex-column min-vh-0">
+    <!-- 检索条件：列表和地图共用同一组筛选，切换视图不丢条件 -->
+    <div class="filter-bar bg-white border-bottom px-3 py-2 d-flex align-items-center gap-2 flex-wrap">
+      <select id="filterIndustry" class="form-select form-select-sm">
+        <option value="">全部行业</option>
+      </select>
+      <select id="filterIntent" class="form-select form-select-sm">
+        <option value="">全部意向</option>
+        <option value="高">高</option>
+        <option value="中">中</option>
+        <option value="低">低</option>
+      </select>
+      <!-- 地区两级联动：省份 → 城市。商机按「项目所在地」归类，
+           采集全国性网站时会同时出现多个省市，靠这两级收敛视野 -->
+      <select id="filterProvince" class="form-select form-select-sm">
+        <option value="">全部省份</option>
+      </select>
+      <select id="filterCity" class="form-select form-select-sm" disabled>
+        <option value="">全部城市</option>
+      </select>
+      <input id="filterKeyword" type="search" class="form-control form-control-sm wb-kw"
+             placeholder="搜标题 / 客户 / 概述">
+      <button id="filterReset" type="button" class="btn btn-sm btn-outline-secondary">重置</button>
+      <span class="text-muted small ms-auto">显示 <b id="visibleCount">0</b> 个</span>
+      <div id="viewSeg" class="view-seg" role="group" aria-label="视图切换">
+        <button type="button" class="btn btn-sm seg active" data-view="table">列表</button>
+        <button type="button" class="btn btn-sm seg" data-view="map">地图</button>
+      </div>
     </div>
-  </div>
 
-  <!-- 列表视图：与地图共用筛选结果，点行开抽屉 -->
-  <main id="viewList" class="flex-grow-1 wb-list-pane">
-    <table id="leadTable" class="wb-table">
-      <thead>
-        <tr>
-          <th>商机标题</th>
-          <th>地区</th>
-          <th>行业</th>
-          <th class="sortable" data-sort="budget">预算<span class="arrow"></span></th>
-          <th>意向</th>
-          <th>联系人</th>
-          <th class="sortable on" data-sort="id">采集时间<span class="arrow">↓</span></th>
-        </tr>
-      </thead>
-      <tbody id="leadTbody"></tbody>
-    </table>
-  </main>
+    <!-- 列表视图：与地图共用筛选结果，点行开抽屉 -->
+    <main id="viewList" class="flex-grow-1 wb-list-pane">
+      <table id="leadTable" class="wb-table">
+        <thead>
+          <tr>
+            <th>商机标题</th>
+            <th>地区</th>
+            <th>行业</th>
+            <th class="sortable" data-sort="budget">预算<span class="arrow"></span></th>
+            <th>意向</th>
+            <th>联系人</th>
+            <th class="sortable on" data-sort="id">采集时间<span class="arrow">↓</span></th>
+          </tr>
+        </thead>
+        <tbody id="leadTbody"></tbody>
+      </table>
+    </main>
 
-  <!-- 地图视图：首次切换时才初始化（隐藏容器里建 AMap 会白屏） -->
-  <main id="map" class="flex-grow-1 d-none"></main>
+    <!-- 地图视图：首次切换时才初始化（隐藏容器里建 AMap 会白屏） -->
+    <main id="map" class="flex-grow-1 d-none"></main>
 
-  <!-- 状态栏：无坐标商机只在列表出现，地图不画 -->
-  <div class="wb-statusbar">
-    共 <b id="statusTotal">0</b> 条 · 其中 <b id="statusGeo">0</b> 条有坐标
-    <span class="wb-hint">地图只画有坐标的商机，剩下的在列表里</span>
-  </div>
+    <!-- 状态栏：无坐标商机只在列表出现，地图不画 -->
+    <div class="wb-statusbar">
+      共 <b id="statusTotal">0</b> 条 · 其中 <b id="statusGeo">0</b> 条有坐标
+      <span class="wb-hint">地图按公告里的项目所在地显示，只画有坐标的商机</span>
+    </div>
+  </section>
+
+  <!-- ====================== 页二：采集任务 ====================== -->
+  <section id="page-task" class="wb-page flex-grow-1 d-none page-scroll">
+    <div class="page-container">
+
+      <!-- 发起采集：只有「选地区 → 开始」两步，控件与按钮基线对齐 -->
+      <div class="panel mt-4">
+        <div class="panel-h">
+          发起采集
+          <span id="taskAlert" class="small ms-auto d-none"></span>
+        </div>
+        <div class="panel-b">
+          <div class="start-row">
+            <div class="grow">
+              <label class="field-label req" for="crawlRegionSelect">采集地区</label>
+              <select id="crawlRegionSelect" class="form-select"></select>
+            </div>
+            <button id="crawlStart" type="button" class="btn btn-primary btn-crawl">开始采集</button>
+          </div>
+          <!-- 提示放在整行下方：不参与按钮/下拉的对齐计算 -->
+          <div id="crawlRegionInfo" class="hint"></div>
+          <!-- 各地区能采到什么由该地区的网站决定，先把这条说清楚，
+               免得「采了合肥却看到全国公告」被当成 bug -->
+          <div class="hint">采集范围由该地区对应的网站决定：接的是全国性网站（如中国政府采购网）时，公告会覆盖全国各地。</div>
+        </div>
+      </div>
+
+      <!-- 进行中：只报用户关心的数字 -->
+      <div id="crawlProgress" class="panel d-none">
+        <div class="panel-h">
+          正在采集
+          <span id="crawlStatus" class="badge text-bg-primary">进行中</span>
+          <span id="crawlTaskNo" class="meta ms-auto"></span>
+        </div>
+        <div class="panel-b">
+          <div class="d-flex align-items-center gap-2">
+            <div id="crawlSpin" class="spinner-border spinner-border-sm text-primary"></div>
+            <span id="crawlRunningText" class="warn-text"></span>
+          </div>
+          <div class="progress mt-3" style="height:6px">
+            <div id="crawlBar" class="progress-bar bg-primary" style="width:2%"></div>
+          </div>
+          <div class="stat-grid">
+            <div class="stat"><b id="crawlTotal">0</b><span>已抓取公告</span></div>
+            <div class="stat good"><b id="crawlNew">0</b><span>新增商机</span></div>
+            <div class="stat"><b id="crawlDup">0</b><span>与已有重复</span></div>
+            <div id="crawlFailStat" class="stat d-none"><b id="crawlFail">0</b><span>抓取失败</span></div>
+          </div>
+          <div id="crawlStopText" class="hint d-none"></div>
+          <div id="crawlFailDetail" class="small mt-2 d-none"></div>
+          <!-- 采集结束后一步跳到工作台，并收敛到刚采的地区 -->
+          <div class="d-flex justify-content-end mt-3">
+            <button id="crawlGoto" type="button" class="btn btn-sm btn-outline-primary d-none">
+              查看该地区商机 →
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 历史任务：一行一条，状态用结果说话 -->
+      <div class="panel">
+        <div class="panel-h">采集记录</div>
+        <div id="taskHistory"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ====================== 页三：站点管理（admin） ====================== -->
+  <section id="page-site" class="wb-page flex-grow-1 d-none page-scroll">
+    <div class="page-container">
+
+      <!-- 接入新采集地区：一步一问，技术细节全部收进折叠区 -->
+      <div class="panel mt-4">
+        <div class="panel-h">
+          接入新的采集地区
+          <span id="probeAlert" class="small ms-auto d-none"></span>
+        </div>
+        <div class="panel-b">
+
+          <!-- 第 1 步：只问一个网址 -->
+          <div id="probeStep1">
+            <label class="field-label req" for="probeListUrl">公告列表页网址</label>
+            <div class="d-flex gap-2 flex-wrap">
+              <input id="probeListUrl" class="form-control probe-url"
+                     placeholder="例如：https://www.ccgp.gov.cn/cggg/zygg/gkzb/index.htm">
+              <button id="probeRun" type="button" class="btn btn-primary text-nowrap btn-probe">开始识别</button>
+            </div>
+            <div class="hint">粘贴招标 / 采购公告列表页的网址；识别约需 <b>1 分钟</b>，期间<b>请不要关闭或刷新页面</b>。</div>
+          </div>
+
+          <!-- 第 2 步：识别中，一句话 + 转圈（不暴露技术步骤） -->
+          <div id="probeStep2" class="d-none">
+            <div class="probe-running">
+              <div class="spinner-border spinner-border-sm text-primary"></div>
+              <span class="warn-text">正在识别该网站的结构，约需 <b>1 分钟</b>，期间<b>请不要关闭页面</b>……</span>
+            </div>
+          </div>
+
+          <!-- 第 3 步：识别成功 → 只问省市两个必填项 -->
+          <div id="probeStep3" class="d-none">
+            <div class="probe-done">
+              <div>识别成功：<b id="probeSiteName"></b></div>
+              <div id="probeSummary" class="mt-1 meta"></div>
+            </div>
+
+            <div class="reg-box">
+              <div class="fw-semibold mb-3">这个网站用于哪个地区？</div>
+              <div class="form-row" id="regForm">
+                <div class="field">
+                  <label class="field-label req" for="regProvince">省份</label>
+                  <input id="regProvince" class="form-control" placeholder="如：安徽省">
+                  <div class="field-error">请填写省份</div>
+                </div>
+                <div class="field">
+                  <label class="field-label req" for="regCity">城市</label>
+                  <input id="regCity" class="form-control" placeholder="如：合肥市（全国性网站填「全国」）">
+                  <div class="field-error">请填写城市</div>
+                </div>
+                <button id="regSave" type="button" class="btn btn-primary btn-reg">保存并开通采集</button>
+              </div>
+              <div class="hint">保存后即可在「采集任务」页选择该地区发起采集。</div>
+            </div>
+
+            <!-- 技术详情：默认折叠，给排查用，正常使用永远不需要打开 -->
+            <details class="tech-collapse">
+              <summary>技术详情（排查用，一般无需查看）</summary>
+              <pre id="probeJson"></pre>
+            </details>
+          </div>
+        </div>
+      </div>
+
+      <!-- 已接入的采集站点：名称说人话，地区一目了然 -->
+      <div class="panel">
+        <div class="panel-h">已开通的采集站点</div>
+        <div id="siteList"></div>
+      </div>
+    </div>
+  </section>
 
   <div id="loading" class="position-fixed top-50 start-50 translate-middle text-center d-none">
     <div class="spinner-border text-primary" role="status"></div>
@@ -104,33 +255,29 @@
     <div id="drawerContent" class="h-100"></div>
   </aside>
 
-  <!-- 商机采集弹窗（批2 改造为地区选择 + 任务进度，本批保持原样） -->
-  <div class="modal fade" id="crawlModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered">
+  <!-- 必填校验弹窗：空值提交时弹它 + 输入框红框，不用静态说明文字 -->
+  <div class="modal fade" id="validModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-sm modal-dialog-centered">
       <div class="modal-content">
-        <div class="modal-header">
-          <h5 class="modal-title">商机采集 <span id="crawlRegion" class="text-muted fs-6"></span></h5>
-          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+        <div class="modal-body text-center py-4" id="validMsg">请填写必填项</div>
+        <div class="modal-footer border-0 justify-content-center pb-4">
+          <button type="button" class="btn btn-primary px-4" data-bs-dismiss="modal">知道了</button>
         </div>
-        <div class="modal-body">
-          <div id="crawlAlert" class="alert py-2 small d-none" role="alert"></div>
-          <div class="mb-3">
-            <label class="form-label" for="crawlBaseDomain">域名（base_domain）：</label>
-            <input id="crawlBaseDomain" class="form-control"
-                   placeholder="https://ggzy.hefei.gov.cn">
-            <div class="form-text">只填协议 + 域名，不要带列表页路径。</div>
-          </div>
-          <div class="mb-3">
-            <label class="form-label" for="crawlListUrl">列表页网址（list_url）：</label>
-            <input id="crawlListUrl" class="form-control"
-                   placeholder="https://.../2.html">
-            <div class="form-text">填完整的列表页链接。</div>
-          </div>
-          <div id="crawlResult" class="alert alert-success py-2 small d-none" role="alert"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 删除二次确认：删除不可逆（地区配置会丢，需重新识别），绝不一点就删 -->
+  <div class="modal fade" id="confirmModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-sm modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-body text-center py-4">
+          <div id="confirmMsg">确定删除？</div>
+          <div id="confirmHint" class="hint mt-2"></div>
         </div>
-        <div class="modal-footer">
-          <button id="crawlSave" type="button" class="btn btn-outline-primary">保存</button>
-          <button id="crawlRun" type="button" class="btn btn-primary">执行</button>
+        <div class="modal-footer border-0 justify-content-center pb-4 gap-2">
+          <button type="button" class="btn btn-outline-secondary px-4" data-bs-dismiss="modal">取消</button>
+          <button type="button" class="btn btn-danger px-4" id="confirmYes">确认删除</button>
         </div>
       </div>
     </div>

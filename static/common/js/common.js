@@ -34,4 +34,38 @@ window.App = {
   async postJson(url, data) {
     return window.App.request(url, "POST", data);
   },
+
+  /* POST 表单（application/x-www-form-urlencoded）。
+   * 采集相关接口（/crawl/start、/crawl/probe）入参是 FastAPI 的 Form，
+   * 用 postJson 发 JSON body 会直接 400，必须走这里。 */
+  async postForm(url, data) {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: window.App.formBody(data),
+    });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    return res.json();
+  },
+
+  /* PUT 表单：/crawl/sites/{id} 这类 PUT + Form 入参的接口用 */
+  async putForm(url, data) {
+    const res = await fetch(url, {
+      method: "PUT",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: window.App.formBody(data),
+    });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    return res.json();
+  },
+
+  /* 表单体序列化：undefined/null 丢给 Form 会变成字符串 "None"，直接不传 */
+  formBody(data) {
+    const body = new URLSearchParams();
+    Object.keys(data || {}).forEach(function (key) {
+      const value = data[key];
+      if (value !== undefined && value !== null) body.append(key, value);
+    });
+    return body.toString();
+  },
 };

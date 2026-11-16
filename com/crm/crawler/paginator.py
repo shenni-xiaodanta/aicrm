@@ -31,6 +31,10 @@ def iter_pages(pagination, base_url, max_pages):
 
     start_page 的存在是为合肥站的怪癖：第 1 页 404，最新内容从
     第 2 页开始——这是站点事实，写成配方数据而不是代码特判。
+
+    起始页直接用 base_url（入口页）本身，不用模板拼：入口页是探测/登记时
+    真实打开过的那一页，而模板拼出来的「第 start 页」未必存在——ccgp 第 1
+    页是 index.htm，模板会拼成 index_1.htm（404），整次采集就卡在第一页。
     """
     start = int(pagination.get("start_page") or 1)
     step = int(pagination.get("step") or 1)
@@ -38,5 +42,8 @@ def iter_pages(pagination, base_url, max_pages):
         step = 1
     page_no = start
     for _ in range(max(1, max_pages)):
-        yield build_page_url(pagination, base_url, page_no), page_no
+        if page_no == start:
+            yield base_url, page_no
+        else:
+            yield build_page_url(pagination, base_url, page_no), page_no
         page_no += step

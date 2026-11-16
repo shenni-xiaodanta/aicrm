@@ -1,34 +1,361 @@
-/* 线索采集：三级下拉 + 采集弹窗 */
-.dropdown-submenu {
-  position: relative;
+/* 采集任务页 + 站点管理页 + 顶栏页签的样式。
+ *
+ * 设计口径（对齐 demo 定稿）：
+ *   - 页面只说用户的话：不出现「选择器 / 翻页规则 / 站点编码 / JSON / 回验」
+ *     这类实现词汇，技术细节收进「技术详情」折叠区，排查时才看
+ *   - 必填项红色星号 + 空值提交弹窗 + 输入框红框，不用静态说明文字
+ *   - 影响操作决策的警示加粗深色，普通说明保持浅灰（满屏重点等于没重点）
+ *   - 发起采集的下拉定宽、按钮紧跟其后：地区数据变多按钮位置不会漂
+ * 工作台的 .wb-* 样式在 shangji/css/map.css，这里只管外壳与这两个页面。
+ */
+
+/* ------------------------------------------------------------------
+ * 顶栏：页签加大点击区，active 用底部色条（不做成挤在一起的小字）
+ * ------------------------------------------------------------------ */
+.topbar {
+  background: #fff;
+  border-bottom: 1px solid #e9ecef;
+  padding: 0 18px;
+  flex: 0 0 auto;
 }
 
-.dropdown-submenu > .submenu {
-  position: absolute;
-  top: 0;
-  left: 100%;
-  margin-top: -.25rem;
-  display: none;
-  min-width: 8rem;
+.topbar .brand {
+  font-weight: 600;
+  font-size: 16px;
+  padding-right: 24px;
+  border-right: 1px solid #e9ecef;
+  margin-right: 8px;
+  line-height: 48px;
 }
 
-.dropdown-submenu.open > .submenu {
+.page-tab {
+  border: none;
+  background: none;
+  color: #6c757d;
+  padding: 14px 18px;
+  font-size: 14px;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+
+.page-tab:hover {
+  color: #212529;
+}
+
+.page-tab.active {
+  color: #0d6efd;
+  font-weight: 600;
+  border-bottom-color: #0d6efd;
+}
+
+/* ------------------------------------------------------------------
+ * 页面容器：body 是 vh-100 纵向 flex，工作台之外的页面自己滚动
+ * ------------------------------------------------------------------ */
+.min-vh-0 {
+  min-height: 0;
+}
+
+.page-scroll {
+  overflow-y: auto;
+  background: #f5f6f8;
+}
+
+.page-container {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0 20px 48px;
+}
+
+/* ------------------------------------------------------------------
+ * 卡片面板
+ * ------------------------------------------------------------------ */
+.panel {
+  background: #fff;
+  border: 1px solid #e9ecef;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.panel + .panel {
+  margin-top: 16px;
+}
+
+.panel-h {
+  padding: 12px 20px;
+  border-bottom: 1px solid #e9ecef;
+  font-weight: 600;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.panel-b {
+  padding: 20px;
+}
+
+.empty-tip {
+  padding: 28px 20px;
+  text-align: center;
+  color: #6c757d;
+}
+
+/* ------------------------------------------------------------------
+ * 表单：必填星号、统一间距、基线对齐
+ * ------------------------------------------------------------------ */
+.req::after {
+  content: " *";
+  color: #dc3545;
+  font-weight: 700;
+}
+
+.field-label {
+  font-size: 13px;
+  color: #495057;
+  margin-bottom: 6px;
   display: block;
 }
 
-.dropdown-submenu > .submenu-toggle::after {
-  content: "›";
-  float: right;
-  margin-left: 1.5rem;
+.form-row {
+  display: flex;
+  gap: 16px;
+  align-items: flex-end;
+  flex-wrap: wrap;
 }
 
-@media (max-width: 576px) {
-  .dropdown-submenu > .submenu {
-    position: static;
-    margin-left: 1rem;
-  }
+.form-row .field {
+  min-width: 200px;
 }
 
-#crawlResult {
-  white-space: pre-line;
+#regForm .field input {
+  width: 220px;
+}
+
+.form-control.is-invalid {
+  border-color: #dc3545;
+}
+
+.field-error {
+  color: #dc3545;
+  font-size: 12px;
+  margin-top: 4px;
+  display: none;
+}
+
+.field.has-error .field-error {
+  display: block;
+}
+
+.hint {
+  color: #6c757d;
+  font-size: 12.5px;
+  margin-top: 8px;
+}
+
+/* 关键警示（影响操作决策的）加粗深色；普通说明保持浅灰不加粗 */
+.hint b,
+.warn-text b {
+  color: #343a40;
+  font-weight: 600;
+}
+
+/* ------------------------------------------------------------------
+ * 发起采集：下拉定宽，按钮位置固定不随数据漂移
+ * ------------------------------------------------------------------ */
+.start-row {
+  display: flex;
+  gap: 16px;
+  align-items: flex-end;
+}
+
+.start-row .grow {
+  width: 420px;
+  max-width: 100%;
+}
+
+.btn-crawl {
+  min-width: 140px;
+  padding: 9px 20px;
+  font-size: 14px;
+  flex: none;
+}
+
+/* ------------------------------------------------------------------
+ * 采集进度：只报用户关心的数字
+ * ------------------------------------------------------------------ */
+.stat-grid {
+  display: flex;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.stat {
+  flex: 1;
+  background: #f8f9fa;
+  border-radius: 8px;
+  padding: 12px 16px;
+  text-align: center;
+}
+
+.stat b {
+  font-size: 20px;
+  display: block;
+  color: #303133;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat span {
+  color: #6c757d;
+  font-size: 12.5px;
+}
+
+.stat.good b {
+  color: #198754;
+}
+
+.stat.bad b {
+  color: #dc3545;
+}
+
+/* ------------------------------------------------------------------
+ * 采集记录：一行一条
+ * ------------------------------------------------------------------ */
+.task-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 20px;
+  border-top: 1px solid #e9ecef;
+  flex-wrap: wrap;
+}
+
+.task-row:hover {
+  background: #fbfcfe;
+}
+
+.task-row .t {
+  color: #6c757d;
+  width: 118px;
+  flex: none;
+}
+
+/* 采集记录的「查看商机」：贴右但不挤占站点名，看起来像一个动作而不是一段文字 */
+.task-row .task-goto {
+  flex: none;
+  padding: 0 2px;
+  text-decoration: none;
+}
+
+.task-detail {
+  padding: 0 20px 12px;
+  font-size: 12.5px;
+  color: #dc3545;
+}
+
+/* ------------------------------------------------------------------
+ * 站点卡片：名称 + 地区标签 + 操作
+ * ------------------------------------------------------------------ */
+.site-card {
+  border-top: 1px solid #e9ecef;
+  padding: 16px 20px;
+}
+
+.site-name {
+  font-weight: 600;
+  font-size: 14.5px;
+}
+
+.region-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #eef3ff;
+  color: #2b4acb;
+  border-radius: 999px;
+  padding: 3px 12px;
+  font-size: 12.5px;
+}
+
+/* 地区标签上的 ×：小到不干扰阅读，hover 才提示危险 */
+.chip-x {
+  border: none;
+  background: none;
+  color: #8a93a6;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 0 0 2px;
+}
+
+.chip-x:hover {
+  color: #dc3545;
+}
+
+.meta {
+  color: #6c757d;
+  font-size: 12.5px;
+}
+
+/* 行内「添加地区」小表单 */
+.add-region {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed #e9ecef;
+}
+
+/* ------------------------------------------------------------------
+ * 识别过程
+ * ------------------------------------------------------------------ */
+.probe-url {
+  max-width: 560px;
+}
+
+.btn-probe,
+.btn-reg {
+  min-width: 120px;
+}
+
+.probe-running {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #f0f6ff;
+  border: 1px solid #cfe2ff;
+  border-radius: 8px;
+  padding: 14px 16px;
+}
+
+.probe-done {
+  background: #f2fbf5;
+  border: 1px solid #bfe8cd;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.reg-box {
+  border-top: 1px dashed #e9ecef;
+  margin-top: 16px;
+  padding-top: 16px;
+}
+
+/* 技术详情：默认折叠，明确标注「排查用」 */
+.tech-collapse {
+  margin-top: 16px;
+}
+
+.tech-collapse summary {
+  color: #6c757d;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.tech-collapse pre {
+  background: #f8f9fa;
+  border: 1px solid #e9ecef;
+  border-radius: 8px;
+  padding: 12px;
+  font-size: 12px;
+  margin-top: 8px;
+  max-height: 220px;
+  overflow: auto;
+  color: #3f4a5a;
 }

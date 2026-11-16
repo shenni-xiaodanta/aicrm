@@ -25,15 +25,20 @@ def _decode_json_fields(row, *keys):
 # 站点模板
 # ---------------------------------------------------------------------
 SITE_COLUMNS = (
-    "id", "site_code", "site_name", "selectors", "pagination", "charset",
+    "id", "site_code", "site_name", "entry_url", "selectors", "pagination", "charset",
     "render_mode", "request_interval", "max_retry", "max_pages",
-    "enabled", "probed_at",
+    "enabled", "probed_at", "is_deleted",
 )
+
+# 软删约定（003 迁移）：is_deleted = 0 正常，删除时写本行 id。
+# 所有「给人看 / 给人用」的查询都要带 is_deleted = 0；
+# 唯一的例外是任务查询（历史任务要能显示已删地区），见 _TASK_SELECT。
 
 
 def get_site(site_id):
     row = query_one(
-        f"SELECT {', '.join(SITE_COLUMNS)} FROM crm_crawl_site WHERE id = %s",
+        f"SELECT {', '.join(SITE_COLUMNS)} FROM crm_crawl_site "
+        "WHERE id = %s AND is_deleted = 0",
         (site_id,),
     )
     return _decode_json_fields(row, "selectors", "pagination") if row else None
@@ -41,21 +46,26 @@ def get_site(site_id):
 
 def get_site_by_code(site_code):
     row = query_one(
-        f"SELECT {', '.join(SITE_COLUMNS)} FROM crm_crawl_site WHERE site_code = %s",
+        f"SELECT {', '.join(SITE_COLUMNS)} FROM crm_crawl_site "
+        "WHERE site_code = %s AND is_deleted = 0",
         (site_code,),
     )
     return _decode_json_fields(row, "selectors", "pagination") if row else None
 
 
-def insert_site(site_code, site_name, selectors, pagination, charset=""):
-    """探测新建站点模板：配方默认走 HTTP 渲染 + 自动猜编码。"""
+def insert_site(site_code, site_name, selectors, pagination, charset="", entry_url=""):
+    """探测新建站点模板：配方默认走 HTTP 渲染 + 自动猜编码。
+
+    entry_url = 探测时的入口页，留给「添加地区」当默认入口地址。
+    """
     return insert(
         "INSERT INTO crm_crawl_site "
-        "(site_code, site_name, selectors, pagination, charset, render_mode) "
-        "VALUES (%s, %s, %s, %s, %s, 'http')",
+        "(site_code, site_name, entry_url, selectors, pagination, charset, render_mode) "
+        "VALUES (%s, %s, %s, %s, %s, %s, 'http')",
         (
             site_code,
             site_name,
+            entry_url,
             json.dumps(selectors, ensure_ascii=False),
             json.dumps(pagination, ensure_ascii=False),
             charset,
@@ -65,7 +75,8 @@ def insert_site(site_code, site_name, selectors, pagination, charset=""):
 
 def list_sites():
     rows = query_all(
-        f"SELECT {', '.join(SITE_COLUMNS)} FROM crm_crawl_site ORDER BY id",
+        f"SELECT {', '.join(SITE_COLUMNS)} FROM crm_crawl_site "
+        "WHERE is_deleted = 0 ORDER BY id",
         None,
     )
     return [_decode_json_fields(row, "selectors", "pagination") for row in rows]
@@ -84,7 +95,16 @@ def update_site(site_id, fields):
     set_sql = ", ".join(f"{key} = %s" for key in fields)
     args.append(site_id)
     return execute(
-        f"UPDATE crm_crawl_site SET {set_sql} WHERE id = %s", tuple(args)
+        f"UPDATE crm_crawl_site SET {set_sql} WHERE id = %s AND is_deleted = 0",
+        tuple(args),
+    )
+
+
+def soft_delete_site(site_id):
+    """软删站点：is_deleted 写本行 id（不写 1，避免与唯一键上的其它已删行撞）。"""
+    return execute(
+        "UPDATE crm_crawl_site SET is_deleted = id WHERE id = %s AND is_deleted = 0",
+        (site_id,),
     )
 
 
@@ -92,22 +112,49 @@ def update_site(site_id, fields):
 # 地区采集点
 # ---------------------------------------------------------------------
 # s_ 前缀 = 来自 join 的站点表字段，避免与地区字段重名
+# 软删过滤写在 SELECT 里（含 JOIN 上的站点）：站点被删时它的地区一律不可见，
+# 不必再额外维护「站点删了地区也删了」这条一致性——两边都带条件天然成立
 _REGION_SELECT = (
     "SELECT r.id, r.site_id, r.province, r.city, r.list_url, r.enabled, "
     "r.last_task_id, r.last_crawl_at, "
     "s.site_code, s.site_name, s.render_mode AS s_render_mode, "
     "s.enabled AS s_enabled "
     "FROM crm_crawl_region r "
-    "JOIN crm_crawl_site s ON s.id = r.site_id"
+    "JOIN crm_crawl_site s ON s.id = r.site_id AND s.is_deleted = 0 "
+    "WHERE r.is_deleted = 0"
 )
 
 
 def get_region(region_id):
-    return query_one(f"{_REGION_SELECT} WHERE r.id = %s", (region_id,))
+    return query_one(f"{_REGION_SELECT} AND r.id = %s", (region_id,))
 
 
 def list_regions():
     return query_all(f"{_REGION_SELECT} ORDER BY r.province, r.city", None)
+
+
+def count_regions_of_site(site_id):
+    row = query_one(
+        "SELECT COUNT(*) AS cnt FROM crm_crawl_region "
+        "WHERE site_id = %s AND is_deleted = 0",
+        (site_id,),
+    )
+    return int(row["cnt"]) if row else 0
+
+
+def soft_delete_regions_of_site(site_id):
+    return execute(
+        "UPDATE crm_crawl_region SET is_deleted = id "
+        "WHERE site_id = %s AND is_deleted = 0",
+        (site_id,),
+    )
+
+
+def soft_delete_region(region_id):
+    return execute(
+        "UPDATE crm_crawl_region SET is_deleted = id WHERE id = %s AND is_deleted = 0",
+        (region_id,),
+    )
 
 
 def touch_region(region_id, task_id):
@@ -120,21 +167,28 @@ def touch_region(region_id, task_id):
 
 
 def upsert_region(site_id, province, city, list_url):
-    """探测登记地区采集点：同站同省市已存在则只更新入口 URL 并重新启用。
+    """登记地区采集点：同站同省市已有「未删」行则更新入口地址，否则新建。
 
-    幂等接入——对同一地区反复探测不会插重；返回该地区行 id。
+    幂等接入——对同一地区反复登记不会插重。不再用 ON DUPLICATE KEY：
+    唯一键并入 is_deleted 后，已删行与活跃行不再互相视为重复，那条路失效了。
+    语义上「重新登记一个删掉的地区」= 新建一行，旧行留着给历史任务 JOIN。
     """
-    execute(
-        "INSERT INTO crm_crawl_region (site_id, province, city, list_url, enabled) "
-        "VALUES (%s, %s, %s, %s, 1) "
-        "ON DUPLICATE KEY UPDATE list_url = VALUES(list_url), enabled = 1",
-        (site_id, province, city, list_url),
-    )
     row = query_one(
-        "SELECT id FROM crm_crawl_region WHERE site_id = %s AND province = %s AND city = %s",
+        "SELECT id FROM crm_crawl_region "
+        "WHERE site_id = %s AND province = %s AND city = %s AND is_deleted = 0",
         (site_id, province, city),
     )
-    return row["id"] if row else None
+    if row:
+        execute(
+            "UPDATE crm_crawl_region SET list_url = %s WHERE id = %s",
+            (list_url, row["id"]),
+        )
+        return row["id"]
+    return insert(
+        "INSERT INTO crm_crawl_region (site_id, province, city, list_url) "
+        "VALUES (%s, %s, %s, %s)",
+        (site_id, province, city, list_url),
+    )
 
 
 # ---------------------------------------------------------------------
@@ -188,6 +242,14 @@ def running_task_for_site(site_id):
     return query_one(
         "SELECT id FROM crm_crawl_task WHERE site_id = %s AND status = 'running'",
         (site_id,),
+    )
+
+
+def running_task_for_region(region_id):
+    """删地区前的运行中检查：任务执行体要读 region 行，删了会中途崩。"""
+    return query_one(
+        "SELECT id FROM crm_crawl_task WHERE region_id = %s AND status = 'running'",
+        (region_id,),
     )
 
 

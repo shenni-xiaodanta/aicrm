@@ -18,7 +18,8 @@
   const logoutBtn = document.getElementById("logout");
   const industryEl = document.getElementById("filterIndustry");
   const intentEl = document.getElementById("filterIntent");
-  const regionEl = document.getElementById("filterRegion");
+  const provinceEl = document.getElementById("filterProvince");
+  const cityEl = document.getElementById("filterCity");
   const kwEl = document.getElementById("filterKeyword");
   const resetBtn = document.getElementById("filterReset");
   const visibleEl = document.getElementById("visibleCount");
@@ -36,7 +37,8 @@
     view: "table",   // table | map；默认列表，地图首次切换时才初始化
     industry: "",
     intent: "",
-    region: "",
+    province: "",
+    city: "",
     kw: "",
     sortKey: "id",   // id（采集时间）| budget | date
     sortDesc: true,
@@ -77,6 +79,44 @@
     return point.province || point.city || "未标注";
   }
 
+  /* 采集地区是人手填的（可能写「安徽」），商机省市是模型从公告里抽的（「安徽省」），
+   * 两边的写法不一定一致。比对前把行政区后缀剥掉再比前缀，才能让
+   * 「安徽」匹配到「安徽省」、也让「合肥」匹配到「合肥市」。 */
+  const AREA_SUFFIX = /(省|市|自治区|特别行政区|自治州|地区|盟)$/;
+
+  function normArea(value) {
+    let text = String(value == null ? "" : value).trim();
+    let guard = 0;
+    while (AREA_SUFFIX.test(text) && guard < 3) {
+      text = text.replace(AREA_SUFFIX, "");
+      guard += 1;
+    }
+    return text;
+  }
+
+  function areaMatch(actual, wanted) {
+    if (!wanted) return true;
+    const a = normArea(actual);
+    const w = normArea(wanted);
+    if (!a || !w) return false;
+    return a === w || a.indexOf(w) === 0 || w.indexOf(a) === 0;
+  }
+
+  // 省市没抽出来时退一步看地址串：地址明明写着合肥市却筛不出来，用户会以为丢数据
+  function matchProvince(point) {
+    if (!state.province) return true;
+    if (areaMatch(point.province, state.province)) return true;
+    return normArea(point.project_address).indexOf(normArea(state.province)) >= 0;
+  }
+
+  function matchCity(point) {
+    if (!state.city) return true;
+    if (areaMatch(point.city, state.city)) return true;
+    // 直辖市省市同名，用 province 兜底
+    if (areaMatch(point.province, state.city)) return true;
+    return normArea(point.project_address).indexOf(normArea(state.city)) >= 0;
+  }
+
   function titleOf(point) {
     // 老数据里可能残留 project_name 字段名，兜底取 source_title
     return point.source_title || point.project_name || "（无标题）";
@@ -90,18 +130,56 @@
     return Array.from(new Set(values.filter(Boolean))).sort();
   }
 
-  // 保留第一个“全部…”选项，并在可能时恢复之前的选择
-  function fillSelect(select, values) {
-    const current = select.value;
-    const allOption = select.options[0].outerHTML;
-    select.innerHTML = allOption;
+  /* 重建下拉：保留首项「全部…」，并尽量恢复之前选中的值。
+   * 选中的值不在数据里时也要留着——用户点了「安徽省」却看不到任何反馈，
+   * 只会以为筛选坏了；返回最终生效值，避免 select 与 state 各说一套。 */
+  function fillSelect(select, values, keep, allText) {
+    const allOption = select.options[0];
+    allOption.textContent = allText || allOption.textContent;
+    select.innerHTML = "";
+    select.appendChild(allOption);
     values.forEach(function (value) {
       const option = document.createElement("option");
       option.value = value;
       option.textContent = value;
       select.appendChild(option);
     });
-    select.value = values.indexOf(current) >= 0 ? current : "";
+    if (keep && values.indexOf(keep) < 0) {
+      const option = document.createElement("option");
+      option.value = keep;
+      option.textContent = keep;
+      select.appendChild(option);
+    }
+    select.value = keep || "";
+    return keep || "";
+  }
+
+  function fillIndustry() {
+    state.industry = fillSelect(
+      industryEl,
+      uniqueValues(allPoints.map(function (p) { return p.industry || "未标注"; })),
+      state.industry,
+      "全部行业"
+    );
+  }
+
+  function fillProvince() {
+    state.province = fillSelect(
+      provinceEl,
+      uniqueValues(allPoints.map(function (p) { return p.province; })),
+      state.province,
+      "全部省份"
+    );
+    fillCity();
+  }
+
+  // 城市选项只列当前省份下的：全国有重名镇/区，跨省混在一起就挑不准了
+  function fillCity() {
+    const values = uniqueValues(
+      allPoints.filter(matchProvince).map(function (p) { return p.city; })
+    );
+    state.city = fillSelect(cityEl, values, state.city, "全部城市");
+    cityEl.disabled = !state.province && !state.city;
   }
 
   function intentBadge(value) {
@@ -115,7 +193,8 @@
     const rows = allPoints.filter(function (point) {
       if (state.industry && (point.industry || "未标注") !== state.industry) return false;
       if (state.intent && point.intent_level !== state.intent) return false;
-      if (state.region && regionOf(point) !== state.region) return false;
+      if (!matchProvince(point)) return false;
+      if (!matchCity(point)) return false;
       if (kw) {
         const hay = [
           titleOf(point), point.customer, point.project_summary, point.project_address,
@@ -196,6 +275,14 @@
     map.setFitView(markers, false, [80, 80, 80, 80]);
   }
 
+  function areaFilterLabel() {
+    if (!state.province && !state.city) return "";
+    if (state.province && state.city && state.province !== state.city) {
+      return state.province + " · " + state.city;
+    }
+    return state.city || state.province;
+  }
+
   function render() {
     const rows = filtered();
     const geoCount = rows.filter(hasGeo).length;
@@ -210,9 +297,31 @@
     if (!allPoints.length) {
       showNotice("暂无可展示的商机，请先采集商机并确保经纬度解析成功。");
     } else if (!rows.length) {
-      showNotice("当前筛选条件下没有商机。");
+      // 地区筛到空是最容易误会的一屏：说清「为什么没有」，别让用户以为采集白跑
+      showNotice(areaFilterLabel()
+        ? "「" + areaFilterLabel() + "」下没有商机。地图按公告里的项目所在地归类，"
+          + "采集全国性网站时公告可能来自其他地区；点「重置」可看全部。"
+        : "当前筛选条件下没有商机。");
     } else {
       showNotice("");
+    }
+  }
+
+  /* 视图切换：列表/地图共用同一组筛选结果。地图从 display:none 变可见时
+   * 画布尺寸还没确定，必须 resize 再落点，否则点位会挤到左上角 */
+  function setView(view) {
+    state.view = view;
+    document.querySelectorAll("#viewSeg .seg").forEach(function (btn) {
+      btn.classList.toggle("active", btn.dataset.view === view);
+    });
+    paneList.classList.toggle("d-none", view !== "table");
+    paneMap.classList.toggle("d-none", view !== "map");
+    if (view === "map") {
+      ensureMap();
+      if (map) {
+        map.resize();
+        renderMap(filtered());
+      }
     }
   }
 
@@ -370,20 +479,7 @@
   // ---------------------------------------------------------------------
   document.querySelectorAll("#viewSeg .seg").forEach(function (btn) {
     btn.addEventListener("click", function () {
-      document.querySelectorAll("#viewSeg .seg").forEach(function (x) {
-        x.classList.toggle("active", x === btn);
-      });
-      state.view = btn.dataset.view;
-      paneList.classList.toggle("d-none", state.view !== "table");
-      paneMap.classList.toggle("d-none", state.view !== "map");
-      if (state.view === "map") {
-        ensureMap();
-        if (map) {
-          // 容器从隐藏变可见后尺寸才确定，让 AMap 重算画布再落点
-          map.resize();
-          renderMap(filtered());
-        }
-      }
+      setView(btn.dataset.view);
     });
   });
 
@@ -417,11 +513,10 @@
       allPoints = (res && res.data) || [];
       countEl.textContent = allPoints.length;
 
-      fillSelect(
-        industryEl,
-        uniqueValues(allPoints.map(function (p) { return p.industry || "未标注"; }))
-      );
-      fillSelect(regionEl, uniqueValues(allPoints.map(regionOf)));
+      // 刷新（含采集完成后的自动刷新）不能把用户当前筛选冲掉，
+      // 否则刚筛到合肥，一刷新又跳回全国
+      fillIndustry();
+      fillProvince();
       render();
     } catch (err) {
       showNotice("加载商机失败：" + err.message);
@@ -430,16 +525,59 @@
     }
   }
 
-  // source.js 在执行采集成功后调用 MapPage.refresh() 刷新数据
-  window.MapPage = { refresh: load };
-  refreshBtn.addEventListener("click", load);
-  [industryEl, intentEl, regionEl].forEach(function (el) {
-    el.addEventListener("change", function () {
-      state.industry = industryEl.value;
-      state.intent = intentEl.value;
-      state.region = regionEl.value;
+  // source.js 在执行采集成功后调用 MapPage.refresh() 刷新数据；
+  // 顶层页签切回工作台时调 onShow：容器从 display:none 回来后，
+  // 当前若是地图视图，AMap 画布尺寸已失效，必须 resize + 重落点
+  // 工作台所在 section 是否可见：隐藏时不能建地图（AMap 会拿到 0 尺寸画布）
+  function workVisible() {
+    const page = document.getElementById("page-work");
+    return !!page && !page.classList.contains("d-none");
+  }
+
+  window.MapPage = {
+    refresh: load,
+    /* 采集完成后由 source.js 调用：把工作台收敛到刚采的地区。
+     * 「全国」表示这个站点本身就是全国性的，不收敛，否则一条都筛不出来。
+     * 返回该地区下的商机数，调用方据此决定提示口径。 */
+    focusRegion: function (province, city) {
+      const pick = function (value) {
+        const text = String(value == null ? "" : value).trim();
+        if (!text || text === "全国" || text === "全国性") return "";
+        return text;
+      };
+      state.province = pick(province);
+      state.city = pick(city);
+      fillProvince();
+      state.view = "map";
+      // 从「采集任务」页调用时工作台是隐藏的：只记视图，等 onShow 再建图落点
+      if (workVisible()) setView("map");
       render();
-    });
+      return filtered().length;
+    },
+    onShow: function () {
+      // 容器已经可见，这里 resize 并重落点；地图实例没建过就在这一步建
+      if (state.view === "map") setView("map");
+    },
+  };
+  refreshBtn.addEventListener("click", load);
+  industryEl.addEventListener("change", function () {
+    state.industry = industryEl.value;
+    render();
+  });
+  intentEl.addEventListener("change", function () {
+    state.intent = intentEl.value;
+    render();
+  });
+  // 换省份要重建城市选项，否则还能选到上一个省的城市
+  provinceEl.addEventListener("change", function () {
+    state.province = provinceEl.value;
+    state.city = "";
+    fillCity();
+    render();
+  });
+  cityEl.addEventListener("change", function () {
+    state.city = cityEl.value;
+    render();
   });
   kwEl.addEventListener("input", function () {
     state.kw = kwEl.value.trim();
@@ -448,9 +586,11 @@
   resetBtn.addEventListener("click", function () {
     industryEl.value = "";
     intentEl.value = "";
-    regionEl.value = "";
     kwEl.value = "";
-    state.industry = state.intent = state.region = state.kw = "";
+    state.industry = state.intent = state.kw = "";
+    state.province = state.city = "";
+    fillIndustry();
+    fillProvince();
     render();
   });
   logoutBtn.addEventListener("click", async function () {

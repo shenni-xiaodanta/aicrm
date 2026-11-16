@@ -37,8 +37,22 @@ DUP_STOP = 5
 # 供 API 调用的同步入口
 # ---------------------------------------------------------------------
 def list_regions():
-    """地区采集点列表（含站点配方摘要），供前端下拉与站点管理页。"""
-    return dao.list_regions()
+    """地区采集点列表（含站点摘要），采集任务下拉与站点管理页共用。
+
+    可用性由后端一次性算好（页面不做布尔组合，沿用项目约定）：
+      - 存在即可采：「停用」这层概念已取消，站点失效的唯一处理方式是删除；
+      - 站点 render_mode 不是 http 的仍然拦住（浏览器渲染留到二期）。
+    disabled_reason 给前端选文案，目前只有 render 一种原因。
+    """
+    rows = dao.list_regions()
+    for row in rows:
+        row["can_crawl"] = row["s_render_mode"] == "http"
+        row["disabled_reason"] = "" if row["can_crawl"] else "render"
+    # 能采的排在前面——不可选项不该挤在用户眼前；同组内按省市排
+    rows.sort(key=lambda row: (
+        not row["can_crawl"], row["province"] or "", row["city"] or ""
+    ))
+    return rows
 
 
 def list_sites():
@@ -60,12 +74,12 @@ def start_crawl(region_id, user_id):
     """发起一次地区采集：校验 → 落任务 → 起后台线程，立即返回。"""
     region = dao.get_region(region_id)
     if not region:
-        raise BizException("采集地区不存在", code=1000)
-    if not region["enabled"] or not region["s_enabled"]:
-        raise BizException("该地区或所属站点已停用", code=1000)
+        raise BizException("该采集地区不存在（可能已被删除）", code=1000)
+    # 不再校验 enabled：停用概念已取消，站点失效就直接删；
+    # 但浏览器渲染的站点本期确实采不了，这一条必须留
     if region["s_render_mode"] != "http":
         raise BizException(
-            f"该站点需要浏览器渲染（render_mode={region['s_render_mode']}），暂不支持",
+            "该站点需要浏览器渲染，本期不支持（请换一个服务端渲染的列表页）",
             code=1000,
         )
     if dao.running_task_for_site(region["site_id"]):
@@ -80,6 +94,89 @@ def start_crawl(region_id, user_id):
         task_id, region["province"], region["city"], user_id,
     )
     return {"task_id": task_id}
+
+
+def add_region(site_id, province, city, list_url=None):
+    """给站点登记地区采集点（站点管理页用），不重跑模型。
+
+    探测只负责生成解析配方；一个站点模板能挂 N 个地区（同构站点共用
+    选择器），地区登记是独立动作——用户只需回答「用在哪个地区」，
+    入口地址从站点配方的翻页模板自动反推，不让人手填（他本来也不该知道）。
+    """
+    province = (province or "").strip()
+    city = (city or "").strip()
+    list_url = (list_url or "").strip()
+    if not province or not city:
+        # 省市只填一个就静默不登记，是之前实测踩到的坑：管理员以为
+        # 登记成功了，下拉里却始终只有旧地区——要么都填要么明确报错
+        raise BizException("省份和城市都要填才能登记采集地区", code=1000)
+    site = dao.get_site(site_id)
+    if not site:
+        raise BizException("站点不存在（可能已被删除）", code=1000)
+    if not has_path(list_url):
+        # 用户不该被要求知道入口地址：新增地区时用站点记录下的探测入口页
+        list_url = (site.get("entry_url") or "").strip()
+    if not has_path(list_url):
+        raise BizException("该站点没有记录入口地址，请重新识别一次该站点", code=1000)
+    region_id = dao.upsert_region(
+        site_id, clip(province, 50), clip(city, 50), clip(list_url, 2048)
+    )
+    logger.info(
+        "站点登记采集地区 site=%s region_id=%s %s/%s",
+        site["site_code"], region_id, province, city,
+    )
+    return {
+        "region_id": region_id,
+        "site_code": site["site_code"],
+        "site_name": site["site_name"],
+    }
+
+
+def delete_site(site_id):
+    """删除站点（软删）：其下地区一并删除，历史任务保留可查。
+
+    为什么软删不硬删：任务表靠 region_id / site_id JOIN 出省市和站点名，
+    硬删会让历史任务那一行直接消失。is_deleted = id 让已删行不再可见，
+    但 JOIN 仍能取到名称。
+    为什么先拦运行中任务：后台线程正在读这套配方和地区行，删了会中途崩。
+    """
+    site = dao.get_site(site_id)
+    if not site:
+        raise BizException("站点不存在（可能已被删除）", code=1000)
+    if dao.running_task_for_site(site_id):
+        raise BizException("该站点有采集任务正在运行，等它结束再删", code=1000)
+    region_count = dao.count_regions_of_site(site_id)
+    with tx():
+        dao.soft_delete_regions_of_site(site_id)
+        dao.soft_delete_site(site_id)
+    logger.info(
+        "站点已删除 site=%s site_id=%s regions=%s",
+        site["site_code"], site_id, region_count,
+    )
+    return {
+        "site_id": site_id,
+        "site_name": site["site_name"],
+        "regions_removed": region_count,
+    }
+
+
+def delete_region(region_id):
+    """删除单个地区采集点（软删）。已入库的商机不受影响。"""
+    region = dao.get_region(region_id)
+    if not region:
+        raise BizException("采集地区不存在（可能已被删除）", code=1000)
+    if dao.running_task_for_region(region_id):
+        raise BizException("该地区有采集任务正在运行，等它结束再删", code=1000)
+    dao.soft_delete_region(region_id)
+    logger.info(
+        "采集地区已删除 region_id=%s %s/%s",
+        region_id, region["province"], region["city"],
+    )
+    return {
+        "region_id": region_id,
+        "province": region["province"],
+        "city": region["city"],
+    }
 
 
 def update_site(site_id, fields):
@@ -138,19 +235,24 @@ def probe_site(list_url, site_code=None, site_name=None, province=None, city=Non
                 "selectors": template["selectors"],
                 "pagination": template["pagination"],
                 "charset": "",          # 探测无法可靠判定编码，交给 fetcher 自动猜
+                # 记住这次探测的入口页：给已有站点「添加地区」时当默认入口，
+                # 用户只填省市，不用再被告知网址
+                "entry_url": clip(list_url, 2048),
                 "probed_at": datetime.now(),
             }
             if (site_name or "").strip():
                 patch["site_name"] = clip(site_name, 100)
             dao.update_site(existing["id"], patch)
             site_id, created = existing["id"], False
+            stored_name = patch.get("site_name") or existing["site_name"]
         else:
-            name = ((site_name or "").strip()
-                    or template.get("site_name")
-                    or code)
+            stored_name = ((site_name or "").strip()
+                           or template.get("site_name")
+                           or code)
             site_id = dao.insert_site(
-                code, clip(name, 100),
+                code, clip(stored_name, 100),
                 template["selectors"], template["pagination"],
+                entry_url=clip(list_url, 2048),
             )
             created = True
 
@@ -169,6 +271,7 @@ def probe_site(list_url, site_code=None, site_name=None, province=None, city=Non
     return {
         "site_id": site_id,
         "site_code": code,
+        "site_name": stored_name,
         "created": created,
         "region_id": region_id,
         "template": template,
@@ -211,7 +314,11 @@ def _crawl(task_id):
     shangji.extract_and_save 抽取入库。进度每页落一次库，前端轮询可见。"""
     task = dao.get_task(task_id)
     region = dao.get_region(task["region_id"])
-    site = dao.get_site(region["site_id"])
+    site = dao.get_site(region["site_id"]) if region else None
+    if not region or not site:
+        # 删除接口已经拦了运行中任务，这里只是兜底：真被删了就带可读原因终止，
+        # 不能让任务卡在 running 把单站锁占死
+        raise RuntimeError("采集地区或站点已被删除，任务终止")
     selectors = site["selectors"] or {}
     pagination = site["pagination"] or {}
     charset = (site.get("charset") or "").strip()

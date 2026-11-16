@@ -17,6 +17,43 @@ def list_regions(_user=Depends(require_login)):
     return ok(service.list_regions())
 
 
+@router.post("/regions")
+def add_region(
+    site_id: int = Form(...),
+    province: str = Form(...),
+    city: str = Form(...),
+    list_url: str = Form(None),
+    _user=Depends(require_admin),
+):
+    """给已有站点登记地区采集点（站点管理页），无需重新探测。
+
+    只问省市；入口地址不传就从站点配方的翻页模板反推（用户不该被要求知道它）。
+    同站同省市幂等（已存在则更新入口地址）。
+    """
+    try:
+        return ok(
+            service.add_region(site_id, province, city, list_url),
+            "采集地区已开通",
+        )
+    except BizException as exc:
+        return fail(exc.msg, code=exc.code)
+    except Exception:
+        service.logger.exception("登记采集地区失败 site_id=%s", site_id)
+        return fail("服务器异常：登记采集地区失败", code=1000)
+
+
+@router.delete("/regions/{region_id}")
+def delete_region(region_id: int, _user=Depends(require_admin)):
+    """删除地区采集点（软删）。已入库商机不受影响，历史任务仍可查。"""
+    try:
+        return ok(service.delete_region(region_id), "采集地区已删除")
+    except BizException as exc:
+        return fail(exc.msg, code=exc.code)
+    except Exception:
+        service.logger.exception("删除采集地区失败 region_id=%s", region_id)
+        return fail("服务器异常：删除采集地区失败", code=1000)
+
+
 @router.get("/tasks")
 def list_tasks(limit: int = 50, _user=Depends(require_login)):
     """最近采集任务列表（含进度与失败明细），任务页数据源。"""
@@ -122,3 +159,18 @@ def update_site(
     except Exception:
         service.logger.exception("更新站点配方失败 site_id=%s", site_id)
         return fail("服务器异常：更新站点配方失败", code=1000)
+
+
+@router.delete("/sites/{site_id}")
+def delete_site(site_id: int, _user=Depends(require_admin)):
+    """删除站点（软删，其下地区一并删除，历史任务与已入库商机保留）。
+
+    运行中的任务会被拒绝——后台线程还在读这套配方。
+    """
+    try:
+        return ok(service.delete_site(site_id), "站点已删除")
+    except BizException as exc:
+        return fail(exc.msg, code=exc.code)
+    except Exception:
+        service.logger.exception("删除站点失败 site_id=%s", site_id)
+        return fail("服务器异常：删除站点失败", code=1000)
