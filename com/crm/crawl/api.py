@@ -41,6 +41,39 @@ def start_crawl(region_id: int = Form(...), user=Depends(require_login)):
         return fail("服务器异常：发起采集失败", code=1000)
 
 
+@router.post("/probe")
+def probe_site(
+    list_url: str = Form(...),
+    site_code: str = Form(None),
+    site_name: str = Form(None),
+    province: str = Form(None),
+    city: str = Form(None),
+    _user=Depends(require_admin),
+):
+    """探测任意列表页 URL，LLM 生成解析配方并入库。
+
+    流程：下载入口页 → 模型读骨架出选择器/翻页模板 → 真页面回验
+    （列表/正文/翻页）→ 新建或覆盖站点模板 → 按需登记地区采集点。
+    会同步等待模型与数次真实请求（约 30~60 秒），失败返回可读原因。
+    """
+    try:
+        return ok(
+            service.probe_site(
+                list_url,
+                site_code=site_code,
+                site_name=site_name,
+                province=province,
+                city=city,
+            ),
+            "探测成功，站点模板已保存",
+        )
+    except BizException as exc:
+        return fail(exc.msg, code=exc.code)
+    except Exception:
+        service.logger.exception("站点探测失败 list_url=%s", list_url)
+        return fail("服务器异常：站点探测失败", code=1000)
+
+
 # ---------------------------------------------------------------------
 # 站点配方：读取全员可见，修改仅 admin（配方是全站共用的解析规则，
 # 改错一个选择器会影响所有地区的采集结果）

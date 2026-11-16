@@ -11,7 +11,8 @@ def build_page_url(pagination, base_url, page_no):
     """生成第 page_no 页的 URL。
 
     url_template 配完整地址（含 {page} 占位）；若只填了相对路径，
-    用入口页 base_url 补全 scheme + 域名。
+    用入口页 base_url 补全（调用方传完整入口页 URL，urljoin 才能保留
+    列表页所在目录）。
     """
     mode = (pagination.get("mode") or "").strip()
     if mode != "page_param":

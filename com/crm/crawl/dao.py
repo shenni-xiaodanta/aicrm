@@ -39,6 +39,30 @@ def get_site(site_id):
     return _decode_json_fields(row, "selectors", "pagination") if row else None
 
 
+def get_site_by_code(site_code):
+    row = query_one(
+        f"SELECT {', '.join(SITE_COLUMNS)} FROM crm_crawl_site WHERE site_code = %s",
+        (site_code,),
+    )
+    return _decode_json_fields(row, "selectors", "pagination") if row else None
+
+
+def insert_site(site_code, site_name, selectors, pagination, charset=""):
+    """探测新建站点模板：配方默认走 HTTP 渲染 + 自动猜编码。"""
+    return insert(
+        "INSERT INTO crm_crawl_site "
+        "(site_code, site_name, selectors, pagination, charset, render_mode) "
+        "VALUES (%s, %s, %s, %s, %s, 'http')",
+        (
+            site_code,
+            site_name,
+            json.dumps(selectors, ensure_ascii=False),
+            json.dumps(pagination, ensure_ascii=False),
+            charset,
+        ),
+    )
+
+
 def list_sites():
     rows = query_all(
         f"SELECT {', '.join(SITE_COLUMNS)} FROM crm_crawl_site ORDER BY id",
@@ -51,8 +75,14 @@ def update_site(site_id, fields):
     """按传入字段更新站点配方（调用方负责校验内容合法）。"""
     if not fields:
         return 0
+    # JSON 列的 dict/list 值统一序列化成字符串——pymysql 不会自动转，
+    # 直接把 dict 丢给 execute 会在 escape 阶段出错
+    args = [
+        json.dumps(value, ensure_ascii=False) if isinstance(value, (dict, list)) else value
+        for value in fields.values()
+    ]
     set_sql = ", ".join(f"{key} = %s" for key in fields)
-    args = list(fields.values()) + [site_id]
+    args.append(site_id)
     return execute(
         f"UPDATE crm_crawl_site SET {set_sql} WHERE id = %s", tuple(args)
     )
@@ -87,6 +117,24 @@ def touch_region(region_id, task_id):
         "WHERE id = %s",
         (task_id, region_id),
     )
+
+
+def upsert_region(site_id, province, city, list_url):
+    """探测登记地区采集点：同站同省市已存在则只更新入口 URL 并重新启用。
+
+    幂等接入——对同一地区反复探测不会插重；返回该地区行 id。
+    """
+    execute(
+        "INSERT INTO crm_crawl_region (site_id, province, city, list_url, enabled) "
+        "VALUES (%s, %s, %s, %s, 1) "
+        "ON DUPLICATE KEY UPDATE list_url = VALUES(list_url), enabled = 1",
+        (site_id, province, city, list_url),
+    )
+    row = query_one(
+        "SELECT id FROM crm_crawl_region WHERE site_id = %s AND province = %s AND city = %s",
+        (site_id, province, city),
+    )
+    return row["id"] if row else None
 
 
 # ---------------------------------------------------------------------

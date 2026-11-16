@@ -23,7 +23,7 @@ class FetchError(Exception):
     """下载最终失败（重试耗尽），message 面向用户可读。"""
 
 
-def get(url, charset="utf-8", max_retry=2, interval=None, timeout=15):
+def get(url, charset="utf-8", max_retry=2, interval=None, timeout=15, referer=None):
     """下载页面并返回解码后的文本。
 
     - 重试：线性退避（2s/4s...）加随机抖动，避免把站点打疼
@@ -31,15 +31,21 @@ def get(url, charset="utf-8", max_retry=2, interval=None, timeout=15):
       （部分政务站声明编码与实际不符，直接信响应头会拿到乱码）
     - interval：本次请求前的礼貌性等待秒数（None=不等待），
       由调用方对每个请求传入，保证「同站串行 + 间隔随机」
+    - referer：来源页 URL；部分政采站（如中国政府采购网）会校验
+      Referer，从列表页点进详情页必须带上，否则被静默拦截
     - 全部重试失败抛 FetchError，绝不静默返回空串
     """
+    headers = dict(HEADERS)
+    if referer:
+        headers["Referer"] = referer
+
     if interval:
         time.sleep(max(0.5, interval + random.uniform(-1, 1)))
 
     last_err = None
     for attempt in range(max_retry + 1):
         try:
-            resp = requests.get(url, headers=HEADERS, timeout=timeout)
+            resp = requests.get(url, headers=headers, timeout=timeout)
             resp.raise_for_status()
             resp.encoding = charset or resp.apparent_encoding
             return resp.text

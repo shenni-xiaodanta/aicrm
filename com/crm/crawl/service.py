@@ -11,14 +11,18 @@ import hashlib
 import logging
 import threading
 from datetime import datetime
+from urllib.parse import urlsplit
 
+from com.crm.common.db import tx
 from com.crm.common.exceptions import BizException
 from com.crm.crawl import dao
 from com.crm.crawler.fetcher import FetchError, get as fetch
 from com.crm.crawler.paginator import iter_pages
 from com.crm.crawler.parser import extract_detail, parse_list
+from com.crm.crawler.probe import ProbeError, run_probe
+from com.crm.crawler.template import validate_template
 from com.crm.helper.texthelper import clip
-from com.crm.helper.urlhelper import origin
+from com.crm.helper.urlhelper import has_path
 from com.crm.shangji.service import extract_and_save
 
 logger = logging.getLogger(__name__)
@@ -79,17 +83,109 @@ def start_crawl(region_id, user_id):
 
 
 def update_site(site_id, fields):
-    """更新站点配方（后台高级配置区用）。只允许改这几个字段。"""
+    """更新站点配方（后台高级配置区用）。只允许改这几个字段。
+
+    选择器/翻页改动先与库中现有配方合并过 validate_template——
+    人工改坏一个 key 就静默入库，下次采集才会炸，问题被推迟一整步。
+    """
     allowed = ("selectors", "pagination", "charset", "render_mode",
                "request_interval", "max_retry", "max_pages", "enabled")
     patch = {k: v for k, v in (fields or {}).items() if k in allowed and v is not None}
     if not patch:
         raise BizException("没有可更新的字段", code=1000)
-    if not dao.get_site(site_id):
+    site = dao.get_site(site_id)
+    if not site:
         raise BizException("站点不存在", code=1000)
+    try:
+        validate_template({
+            "selectors": patch.get("selectors") or site.get("selectors") or {},
+            "pagination": patch.get("pagination") or site.get("pagination") or {},
+        })
+    except ValueError as e:
+        raise BizException(f"站点配方不合法：{e}", code=1000)
     dao.update_site(site_id, patch)
     logger.info("站点配方更新 id=%s fields=%s", site_id, list(patch))
     return dao.get_site(site_id)
+
+
+def probe_site(list_url, site_code=None, site_name=None, province=None, city=None):
+    """LLM 探测站点结构并保存模板（POST /crawl/probe 的业务入口）。
+
+    流程：下载入口页 → LLM 读骨架生成配方 → 真页面三重回验
+    （列表 / 正文 / 翻页）→ 事务内新建或覆盖站点模板 → 按需登记地区。
+    失败统一转 BizException 可读文案，绝不入库半成品模板；
+    对已有 site_code 重探 = 覆盖配方（模板自愈 / 改版恢复都走这条）。
+    """
+    list_url = (list_url or "").strip()
+    if not has_path(list_url):
+        raise BizException(
+            "list_url 必须是带路径的 http(s) 地址，例如 https://xxx.gov.cn/jyxx/002002/002002001/2.html",
+            code=1000,
+        )
+
+    try:
+        template, evidence = run_probe(list_url)
+    except FetchError as e:
+        raise BizException(f"探测失败：列表页下载失败（{clip(str(e), 150)}）", code=1000)
+    except ProbeError as e:
+        raise BizException(f"探测失败：{e}", code=1000)
+
+    code = clip(site_code, 50) or _site_code_from_url(list_url)
+    with tx():
+        existing = dao.get_site_by_code(code)
+        if existing:
+            patch = {
+                "selectors": template["selectors"],
+                "pagination": template["pagination"],
+                "charset": "",          # 探测无法可靠判定编码，交给 fetcher 自动猜
+                "probed_at": datetime.now(),
+            }
+            if (site_name or "").strip():
+                patch["site_name"] = clip(site_name, 100)
+            dao.update_site(existing["id"], patch)
+            site_id, created = existing["id"], False
+        else:
+            name = ((site_name or "").strip()
+                    or template.get("site_name")
+                    or code)
+            site_id = dao.insert_site(
+                code, clip(name, 100),
+                template["selectors"], template["pagination"],
+            )
+            created = True
+
+        # 省市都给了才登记地区采集点；只建模板不建地区是合法的
+        #（站点管理页后续做增删改，那里再补地区）
+        region_id = None
+        if (province or "").strip() and (city or "").strip():
+            region_id = dao.upsert_region(
+                site_id, clip(province, 50), clip(city, 50), clip(list_url, 2048)
+            )
+
+    logger.info(
+        "站点探测入库 code=%s created=%s site_id=%s region_id=%s items=%s",
+        code, created, site_id, region_id, evidence["list_items"],
+    )
+    return {
+        "site_id": site_id,
+        "site_code": code,
+        "created": created,
+        "region_id": region_id,
+        "template": template,
+        "evidence": evidence,
+    }
+
+
+def _site_code_from_url(list_url):
+    """从域名推导站点编码（未显式传 site_code 时用）：去 www、点换下划线。
+
+    同一域名永远推出同一编码——对同一站点反复探测天然走「覆盖」分支，
+    不会一探就插一条新模板。
+    """
+    host = urlsplit(list_url).netloc.split("@")[-1].split(":")[0].lower()
+    if host.startswith("www."):
+        host = host[4:]
+    return clip(host.replace(".", "_"), 50)
 
 
 # ---------------------------------------------------------------------
@@ -123,9 +219,10 @@ def _crawl(task_id):
     max_pages = int(site.get("max_pages") or 10)
     interval = float(site.get("request_interval") or 3.0)
 
-    # 入口页只用来取域名（href 拼接 / 相对翻页模板补全），
-    # 实际抓哪几页完全由站点配方的 url_template 决定
-    base_url = origin(region["list_url"])
+    # href 拼接 / 相对翻页模板补全的基准用完整入口页 URL：裸域名会把
+    # 列表页自身目录丢掉，相对链接（202611/t...htm）会拼成 404 地址
+    # （ccgp 实测踩坑，探测侧同修）
+    list_url_full = region["list_url"]
 
     pages_crawled = 0
     total_items = new_count = dup_count = fail_count = 0
@@ -134,7 +231,7 @@ def _crawl(task_id):
     stop_reason = None
     status = "success"
 
-    for page_url, page_no in iter_pages(pagination, base_url, max_pages):
+    for page_url, page_no in iter_pages(pagination, list_url_full, max_pages):
         try:
             html = fetch(page_url, charset=charset, max_retry=max_retry)
         except FetchError as e:
@@ -145,7 +242,7 @@ def _crawl(task_id):
             stop_reason = "error"
             break
 
-        items = parse_list(html, selectors, base_url)
+        items = parse_list(html, selectors, list_url_full)
         total_items += len(items)
 
         if not items:
@@ -169,7 +266,9 @@ def _crawl(task_id):
             consecutive_dups = 0
 
             try:
-                detail_html = fetch(item["url"], charset=charset, max_retry=max_retry)
+                # referer 带上列表页：部分政采站校验来源页，不带会被静默拦截
+                detail_html = fetch(item["url"], charset=charset, max_retry=max_retry,
+                                    referer=page_url)
             except FetchError as e:
                 fail_count += 1
                 fail_detail.append({

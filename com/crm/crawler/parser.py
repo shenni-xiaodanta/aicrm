@@ -17,9 +17,11 @@ MIN_DETAIL_LEN = 300
 def parse_list(html, selectors, base_url):
     """解析列表页，返回 [{title, url, date}]。
 
-    - href 以 / 开头拼 base_url 域名，其他相对路径用 urljoin 补全
+    - href 用 urljoin 以 base_url 为基准补全；调用方必须传**完整入口页
+      URL**（只传域名的旧写法会把列表页自身目录丢掉，相对链接拼成 404）
     - 标题优先取 title_attr 指定的属性（合肥站在 a 的 title 属性里，
       标签文本是截断的），取不到再退回标签文本
+    - javascript: / # / mailto: 这类伪链接直接跳过，不当成公告详情
     - 选择器缺 list_item / list_link 视为配方损坏，抛错而非返回空列表：
       「配方错了」和「页面没数据」必须区分
     """
@@ -44,8 +46,8 @@ def parse_list(html, selectors, base_url):
         title = title or a.get_text(strip=True)
 
         href = (a.get("href") or "").strip()
-        if not href:
-            continue
+        if not href or href.startswith(("javascript:", "#", "mailto:")):
+            continue  # 占位/伪链接，不当成公告详情
         if href.startswith(("http://", "https://")):
             url = href
         else:
