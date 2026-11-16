@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>商机地图</title>
-  <!-- 所有页签模块的样式都在此页面加载，InfoWindow 内各页签共用 -->
+  <title>商机工作台</title>
+  <!-- 所有页签模块的样式都在此页面加载，抽屉内各页签共用 -->
   <link rel="stylesheet" href="/static/common/vendor/bootstrap/bootstrap.min.css">
   <link rel="stylesheet" href="/static/common/css/common.css">
   <link rel="stylesheet" href="/static/shangji/css/map.css">
@@ -20,7 +20,7 @@
 </head>
 <body class="d-flex flex-column vh-100">
   <nav class="navbar bg-white border-bottom shadow-sm px-3">
-    <span class="navbar-brand mb-0 fw-semibold">商机地图</span>
+    <span class="navbar-brand mb-0 fw-semibold">商机工作台</span>
 
     <ul class="navbar-nav me-auto ms-3">
       <li class="nav-item dropdown">
@@ -42,7 +42,7 @@
     </div>
   </nav>
 
-  <!-- 检索条件 -->
+  <!-- 检索条件：列表和地图共用同一组筛选，切换视图不丢条件 -->
   <div class="filter-bar bg-white border-bottom px-3 py-2 d-flex align-items-center gap-2 flex-wrap">
     <select id="filterIndustry" class="form-select form-select-sm">
       <option value="">全部行业</option>
@@ -56,11 +56,42 @@
     <select id="filterRegion" class="form-select form-select-sm">
       <option value="">全部区域</option>
     </select>
+    <input id="filterKeyword" type="search" class="form-control form-control-sm wb-kw"
+           placeholder="搜标题 / 客户 / 概述">
     <button id="filterReset" type="button" class="btn btn-sm btn-outline-secondary">重置</button>
     <span class="text-muted small ms-auto">显示 <b id="visibleCount">0</b> 个</span>
+    <div id="viewSeg" class="view-seg" role="group" aria-label="视图切换">
+      <button type="button" class="btn btn-sm seg active" data-view="table">列表</button>
+      <button type="button" class="btn btn-sm seg" data-view="map">地图</button>
+    </div>
   </div>
 
-  <main id="map" class="flex-grow-1"></main>
+  <!-- 列表视图：与地图共用筛选结果，点行开抽屉 -->
+  <main id="viewList" class="flex-grow-1 wb-list-pane">
+    <table id="leadTable" class="wb-table">
+      <thead>
+        <tr>
+          <th>商机标题</th>
+          <th>地区</th>
+          <th>行业</th>
+          <th class="sortable" data-sort="budget">预算<span class="arrow"></span></th>
+          <th>意向</th>
+          <th>联系人</th>
+          <th class="sortable on" data-sort="id">采集时间<span class="arrow">↓</span></th>
+        </tr>
+      </thead>
+      <tbody id="leadTbody"></tbody>
+    </table>
+  </main>
+
+  <!-- 地图视图：首次切换时才初始化（隐藏容器里建 AMap 会白屏） -->
+  <main id="map" class="flex-grow-1 d-none"></main>
+
+  <!-- 状态栏：无坐标商机只在列表出现，地图不画 -->
+  <div class="wb-statusbar">
+    共 <b id="statusTotal">0</b> 条 · 其中 <b id="statusGeo">0</b> 条有坐标
+    <span class="wb-hint">地图只画有坐标的商机，剩下的在列表里</span>
+  </div>
 
   <div id="loading" class="position-fixed top-50 start-50 translate-middle text-center d-none">
     <div class="spinner-border text-primary" role="status"></div>
@@ -68,7 +99,12 @@
   </div>
   <div id="notice" class="alert alert-warning shadow-sm position-fixed bottom-0 start-50 translate-middle-x mb-3 d-none" role="alert"></div>
 
-  <!-- 商机采集弹窗 -->
+  <!-- 商机详情抽屉：每次打开整体重建内容子树（沿用 InfoWindow 时代的页签挂载契约） -->
+  <aside id="drawer" class="wb-drawer" aria-hidden="true">
+    <div id="drawerContent" class="h-100"></div>
+  </aside>
+
+  <!-- 商机采集弹窗（批2 改造为地区选择 + 任务进度，本批保持原样） -->
   <div class="modal fade" id="crawlModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
       <div class="modal-content">
@@ -100,8 +136,8 @@
     </div>
   </div>
 
-  <!-- 加载顺序有依赖：Bootstrap -> 公共工具 -> 地图 -> 各页签模块。
-       map.js 依赖 App，并在点击水滴时调用 ChatPage.sql。 -->
+  <!-- 加载顺序有依赖：Bootstrap -> 公共工具 -> 工作台 -> 各页签模块。
+       map.js 依赖 App，并在打开抽屉时调用 ChatPage.init。 -->
   <script src="/static/common/vendor/bootstrap/bootstrap.bundle.min.js"></script>
   <script src="/static/common/js/common.js"></script>
   <script src="/static/shangji/js/map.js"></script>

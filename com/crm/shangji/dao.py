@@ -54,10 +54,14 @@ def _decode(row):
 
 
 def list_points():
-    """查询所有已有经纬度的商机，供地图展示。"""
+    """查询全部商机（含未解析出坐标的），列表与地图共用一份数据。
+
+    坐标过滤交给前端：地图只画有经纬度的，无坐标的只在列表展示——
+    原来这里 WHERE longitude IS NOT NULL 会把无坐标商机整个藏掉，
+    双视图上线后它们必须出现在列表里（状态栏的「共 N 条 · M 条有坐标」）。
+    """
     rows = query_all(
         f"SELECT {', '.join(POINT_COLUMNS)} FROM crm_shangji "
-        "WHERE longitude IS NOT NULL AND latitude IS NOT NULL "
         "ORDER BY id DESC",
         None,
     )
